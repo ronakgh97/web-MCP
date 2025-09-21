@@ -34,7 +34,7 @@
         <selenium.version>4.35.0</selenium.version>
         <playwright.version>1.40.0</playwright.version>
         <jsoup.version>1.17.2</jsoup.version>
-        <pdfbox.version>3.0.1</pdfbox.version>
+        <pdfbox.version>3.0.5</pdfbox.version>
         <jgit.version>7.3.0.202506031305-r</jgit.version>
         <websocket.version>1.6.0</websocket.version>
         <dotenv.version>4.0.0</dotenv.version>

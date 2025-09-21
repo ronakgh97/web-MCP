@@ -9,236 +9,277 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static com.mcp.webScraper.workers.PlaywrightConfig.*;
 
+/**
+ * This service provides the functionality to search on the web using Playwright.
+ * It supports multiple search engines and can fall back to changes in the search engine's website.
+ */
 @Service
 public class PlaywrightBrowserSearchTools {
 
     private static final Logger logger = LoggerFactory.getLogger(PlaywrightBrowserSearchTools.class);
 
-    // Search Configuration
-    private static final int MAX_DUCKDUCKGO_RESULTS = 1;
-    private static final int MAX_BING_RESULTS = 1;
-    private static final int DUCKDUCKGO_SNIPPET_LENGTH = 1500;
-    private static final int BING_SNIPPET_LENGTH = 1255;
-    private static final int URL_DISPLAY_MAX_LENGTH = 100;
-    private static final int URL_SUFFIX_LENGTH = 100;
-    private static final int TRUNCATE_THRESHOLD = 1200;
+    // The maximum number of search results to return per search engine.
+    private static final int MAX_RESULTS_PER_ENGINE = 3;
 
-    // Search Engine URLs
-    private static final String DUCKDUCKGO_URL_TEMPLATE = "https://duckduckgo.com/?q=%s&t=h_&ia=web";
-    private static final String BING_URL_TEMPLATE = "https://www.bing.com/search?q=%s&form=QBLH";
-
-    // Search Engine Configuration Map
-    private static final Map<String, SearchEngineConfig> SEARCH_ENGINES = Map.of(
-            "duckduckgo", new SearchEngineConfig(
+    // A map of search engines that are supported by this service.
+    // Each search engine has a name, a URL template, and selectors for the search results, titles, and snippets.
+    private static final Map<String, SearchEngine> ENGINES = Map.of(
+            "duckduckgo", new SearchEngine(
                     "DuckDuckGo",
-                    DUCKDUCKGO_URL_TEMPLATE,
-                    new String[]{
-                            "[data-testid='result']",
-                            ".react-results--main .result",
-                            "#links .result",
-                            "article[data-testid='result']",
-                            ".web-result"
-                    },
-                    "[data-testid='result-title-a']",
-                    "h2 a, h3 a, .result__title a",
-                    "[data-testid='result-snippet']",
-                    ".result__snippet, .snippet, p",
-                    MAX_DUCKDUCKGO_RESULTS,
-                    DUCKDUCKGO_SNIPPET_LENGTH,
-                    "🦆"
-            ),
-            "bing", new SearchEngineConfig(
-                    "Bing",
-                    BING_URL_TEMPLATE,
-                    new String[]{
-                            ".b_algo",
-                            "#b_results .b_algo",
-                            ".b_searchResult",
-                            "[data-bm]"
-                    },
-                    "h2 a",
-                    ".b_title a, h2 a, h3 a",
-                    ".b_caption p",
-                    ".b_caption, .b_snippet, .b_dList",
-                    MAX_BING_RESULTS,
-                    BING_SNIPPET_LENGTH,
-                    "🔍"
+                    "https://duckduckgo.com/?q=%s&t=h_&ia=web",
+                    "[data-testid='result'], .react-results--main .result, #links .result, article[data-testid='result']",
+                    "[data-testid='result-title-a'], h2 a, h3 a, .result__title a",
+                    "[data-testid='result-snippet'], .result__snippet, .snippet, p"
             )
     );
 
-    // Default search engine order
-    private static final List<String> DEFAULT_SEARCH_ORDER = List.of("duckduckgo", "bing");
-
-    // Resource blocking patterns
-    private static final String BLOCKED_RESOURCES = "**/*.{png,jpg,jpeg,gif,svg,woff,woff2}";
-
-    // Instance variables
+    // Instance variables for Playwright and the browser.
     private volatile Playwright playwright;
     private volatile Browser browser;
     private final SecureRandom random = new SecureRandom();
     private final AtomicLong searchCount = new AtomicLong(0);
 
+    /**
+     * Constructor for the PlaywrightBrowserSearchTools.
+     * Initializes the Playwright browser.
+     */
     public PlaywrightBrowserSearchTools() {
-        logger.info("Initializing Playwright browser search tool...");
-        try {
-            playwright = Playwright.create();
-            browser = playwright.chromium().launch(new BrowserType.LaunchOptions()
-                    .setHeadless(BROWSER_HEADLESS)
-                    .setTimeout(DEFAULT_TIMEOUT_MS)
-                    .setArgs(BROWSER_ARGS)
-            );
-            logger.info("Playwright browser initialized successfully. Available engines: {}",
-                    String.join(", ", SEARCH_ENGINES.keySet()));
-        } catch (Exception e) {
-            logger.error("Asynchronous Playwright browser initialization failed.", e);
-        }
+        logger.info("Initializing Playwright search tool...");
+        initializeBrowser();
     }
 
+    /**
+     * This method is called before the bean is destroyed.
+     * It closes the Playwright browser and releases any resources.
+     */
     @PreDestroy
     public void cleanup() {
-        logger.info("Shutting down Playwright browser search tool");
+        logger.info("Shutting down Playwright search tool");
         try {
             if (browser != null) browser.close();
             if (playwright != null) playwright.close();
-            logger.info("Playwright resources cleaned up successfully. Total searches: {}", searchCount.get());
         } catch (Exception e) {
             logger.error("Error during cleanup", e);
         }
     }
 
-    public List<SearchResult> playwrightSearch(
-            String query,
-            String engine) {
-
+    /**
+     * This is the main method for performing a web search.
+     * It takes a query and a search engine, and returns a list of search results.
+     */
+    public List<SearchResult> playwrightSearch(String query, String engine) {
         if (browser == null) {
-            logger.warn("Playwright browser is not yet initialized. Please try again in a moment.");
-            return new ArrayList<>();
+            logger.warn("Browser not initialized");
+            return List.of(
+                    new SearchResult(false, null, null, null, "Browser initialization failed")
+            );
         }
 
         long searchId = searchCount.incrementAndGet();
-        logger.debug("Starting browser search #{} for query: '{}' with engine preference: '{}'",
-                searchId, query, engine);
+        logger.debug("Starting search #{}: '{}'", searchId, query);
 
-        // Validate input
-        SearchRequest request = validateSearchRequest(query, engine);
-        if (!request.isValid()) {
-            logger.warn("Invalid search request #{}: {}", searchId, request.getErrorMessage());
-            return new ArrayList<>();
+        // Validate the input query.
+        if (query == null || query.trim().isEmpty()) {
+            logger.warn("Empty query for search #{}", searchId);
+            return List.of(
+                    new SearchResult(false, null, null, null, "Empty query")
+            );
         }
 
-        BrowserContext context = null;
-        try {
-            String userAgent = getRandomUserAgent();
-
-            context = browser.newContext(new Browser.NewContextOptions()
-                    .setUserAgent(userAgent)
-                    .setViewportSize(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
-                    .setJavaScriptEnabled(true)
-                    .setExtraHTTPHeaders(createHeaders())
-            );
-
+        try (BrowserContext context = createContext()) {
             Page page = context.newPage();
-            configurePageStealth(page);
-            setupResourceBlocking(page);
+            setupPage(page);
 
-            List<SearchResult> result = searchWithMultipleEngines(page, request, searchId);
-
-            logger.info("Browser search #{} completed successfully", searchId);
-            return result;
+            List<SearchResult> results = performSearch(page, query.trim(), engine, searchId);
+            logger.info("Search #{} completed with {} results", searchId, results.size());
+            return results;
 
         } catch (Exception e) {
-            logger.error("Browser search #{} failed: {}", searchId, e.getMessage());
-            return new ArrayList<>();
-        } finally {
-            if (context != null) context.close();
+            logger.error("Search #{} failed: {}", searchId, e.getMessage());
+            return List.of(
+                    new SearchResult(false, null, null, null, "Search failed")
+            );
         }
     }
 
-    private SearchRequest validateSearchRequest(String query, String engine) {
-        if (query == null || query.trim().isEmpty()) {
-            return SearchRequest.invalid("Search query cannot be empty.");
-        }
-
-        String trimmedQuery = query.trim();
-        if (trimmedQuery.length() > 200) {
-            return SearchRequest.invalid("Search query is too long (maximum 200 characters).");
-        }
-
-        String preferredEngine = null;
-        if (engine != null && !engine.trim().isEmpty()) {
-            String normalizedEngine = engine.trim().toLowerCase();
-            if (!SEARCH_ENGINES.containsKey(normalizedEngine)) {
-                return SearchRequest.invalid("Invalid search engine. Available options: " +
-                        String.join(", ", SEARCH_ENGINES.keySet()));
-            }
-            preferredEngine = normalizedEngine;
-        }
-
-        return SearchRequest.valid(trimmedQuery, preferredEngine);
-    }
-
-    private List<SearchResult> searchWithMultipleEngines(Page page, SearchRequest request, long searchId) {
-        List<String> engineOrder = determineSearchOrder(request.getPreferredEngine());
-        List<SearchResult> searchResultList = new ArrayList<>();
+    /**
+     * This method performs the actual search on the search engine's website.
+     * It iterates through the configured search engines and tries to find results.
+     */
+    private List<SearchResult> performSearch(Page page, String query, String preferredEngine, long searchId) {
+        List<String> engineOrder = determineEngineOrder(preferredEngine);
 
         for (String engineKey : engineOrder) {
-            SearchEngineConfig config = SEARCH_ENGINES.get(engineKey);
-            if (config == null) continue;
+            SearchEngine engine = ENGINES.get(engineKey);
+            if (engine == null) continue;
 
             try {
-                logger.debug("Attempting search #{} with {} engine", searchId, config.name);
-                SearchEngineResult result = performSearchWithEngine(page, request.getQuery(), config, searchId);
+                logger.debug("Trying {} for search #{}", engine.name, searchId);
 
-                if (result.hasResults()) {
-                    for (SearchResultData item : result.items) {
-                        SearchResult searchResult = new SearchResult();
-                        searchResult.setSource(item.link);
-                        searchResult.setContent(null);
-                        searchResultList.add(searchResult);
-                    }
+                // Navigate to the search engine's website.
+                String searchUrl = String.format(engine.urlTemplate, URLEncoder.encode(query, StandardCharsets.UTF_8));
+                page.navigate(searchUrl, new Page.NavigateOptions()
+                        .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
+                        .setTimeout(NAVIGATION_TIMEOUT_MS));
 
-                    logger.info("Search #{} successful with {} engine - {} results",
-                            searchId, config.name, result.getResultCount());
+                // Wait for the search results to appear on the page.
+                if (!tryMultipleSelectors(page, engine.resultSelector.split(", "))) {
+                    logger.debug("No results found with any selector for search #{}", searchId);
+                    continue; // Try next engine
+                }
 
-                    // If we have results from preferred engine or DuckDuckGo, we can stop
-                    if (request.getPreferredEngine() != null || "duckduckgo".equals(engineKey)) {
-                        break;
-                    }
+                // Add a human-like delay to avoid being detected as a bot.
+                page.waitForTimeout(WAIT_TIMEOUT_MS);
+
+                // Extract the search results from the page.
+                List<SearchResult> results = extractResults(page, engine, searchId);
+
+                logger.debug("Engine {} returned {} SearchResult objects for search #{}",
+                        engine.name, results.size(), searchId);
+
+                if (!results.isEmpty()) {
+                    logger.info("Search #{} successful with {} - {} results", searchId, engine.name, results.size());
+                    return results;
                 } else {
-                    logger.debug("Search #{} with {} engine returned no results", searchId, config.name);
+                    logger.debug("Engine {} returned empty results", engine.name);
                 }
 
             } catch (Exception e) {
-                logger.warn("Search #{} error with {} engine: {}", searchId, config.name, e.getMessage());
-                continue;
+                logger.debug("Search #{} failed with {}: {}", searchId, engine.name, e.getMessage());
             }
         }
 
-        return !searchResultList.isEmpty() ? searchResultList : new ArrayList<>();
+        return List.of(
+                new SearchResult(false, null, null, null, "I dont know the error seriously")
+        );
     }
 
-    private List<String> determineSearchOrder(String preferredEngine) {
-        List<String> order = new ArrayList<>();
+    /**
+     * This method extracts the search results from the page.
+     * It uses the configured selectors to find the title, link, and snippet of each search result.
+     */
+    private List<SearchResult> extractResults(Page page, SearchEngine engine, long searchId) {
+        List<SearchResult> results = new ArrayList<>();
 
-        // Add preferred engine first if specified
-        if (preferredEngine != null) {
-            order.add(preferredEngine);
+        try {
+            Locator resultElements = page.locator(engine.resultSelector);
+            int count = Math.min(resultElements.count(), MAX_RESULTS_PER_ENGINE);
+
+            logger.debug("Found {} results for search #{}", count, searchId);
+
+            for (int i = 0; i < count; i++) {
+                try {
+                    Locator result = resultElements.nth(i);
+
+                    // Try different selectors for the title and link to make the scraping more robust.
+                    String title = null;
+                    String link = null;
+
+                    for (String titleSel : engine.titleSelector.split(", ")) {
+                        title = getTextSafely(result.locator(titleSel.trim()));
+                        link = getLinkSafely(result.locator(titleSel.trim()));
+                        if (title != null && link != null) break;
+                    }
+
+                    String snippet = getTextSafely(result.locator(engine.snippetSelector));
+
+                    if (title != null && link != null && !link.trim().isEmpty()) {
+                        SearchResult searchResult = new SearchResult();
+                        searchResult.setSuccess(true);
+                        searchResult.setSource(link.trim());
+                        searchResult.setSnippet(snippet != null ? snippet.trim() : title.trim());
+                        searchResult.setError(null);
+                        results.add(searchResult);
+                    }
+
+                } catch (Exception e) {
+                    logger.debug("Failed to extract result #{}", i + 1);
+                }
+            }
+
+        } catch (Exception e) {
+            logger.error("Result extraction failed for search #{}: {}", searchId, e.getMessage());
+            return List.of(
+                    new SearchResult(false, null, null, null, "Failed to extract result or empty field")
+            );
         }
 
-        // Add remaining engines from default order
-        for (String engine : DEFAULT_SEARCH_ORDER) {
+        return results;
+    }
+
+    /**
+     * This method tries to find an element on the page using multiple selectors.
+     * This is useful when a website has different layouts or class names for the same element.
+     */
+    private boolean tryMultipleSelectors(Page page, String[] selectors) {
+        for (String selector : selectors) {
+            try {
+                page.waitForSelector(selector.trim(), new Page.WaitForSelectorOptions()
+                        .setTimeout(PlaywrightConfig.SELECTOR_WAIT_TIMEOUT_MS)
+                        .setState(WaitForSelectorState.ATTACHED));
+
+                // Verify that the element is actually visible.
+                Locator elements = page.locator(selector.trim());
+                if (elements.first().isVisible()) {
+                    return true;
+                }
+            } catch (Exception e) {
+                logger.debug("Selector '{}' failed: {}", selector.trim(), e.getMessage());
+            }
+        }
+        return false;
+    }
+
+    /**
+     * This method safely extracts the text content of an element.
+     */
+    private String getTextSafely(Locator locator) {
+        try {
+            return locator.count() > 0 ? locator.textContent() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * This method safely extracts the href attribute of a link.
+     */
+    private String getLinkSafely(Locator locator) {
+        try {
+            if (locator.count() > 0) {
+                String href = locator.getAttribute("href");
+                return href != null && href.startsWith("http") ? href : null;
+            }
+        } catch (Exception e) {
+            // Ignore any exceptions.
+        }
+        return null;
+    }
+
+    /**
+     * This method determines the order of search engines to use.
+     * It prioritizes the preferred engine, and then adds the remaining engines.
+     */
+    private List<String> determineEngineOrder(String preferred) {
+        List<String> order = new ArrayList<>();
+
+        if (preferred != null && ENGINES.containsKey(preferred.toLowerCase())) {
+            order.add(preferred.toLowerCase());
+        }
+
+        // Add the remaining engines.
+        for (String engine : Arrays.asList("duckduckgo")) {
             if (!order.contains(engine)) {
                 order.add(engine);
             }
@@ -247,287 +288,93 @@ public class PlaywrightBrowserSearchTools {
         return order;
     }
 
-    private SearchEngineResult performSearchWithEngine(Page page, String query, SearchEngineConfig config, long searchId)
-            throws SearchException {
+    /**
+     * This method initializes the Playwright browser.
+     * It creates a new Playwright instance and launches a Chromium browser.
+     */
+    private void initializeBrowser() {
         try {
-            String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
-            String searchUrl = String.format(config.urlTemplate, encodedQuery);
-
-            logger.debug("Navigating to {} for search #{}", config.name, searchId);
-            page.navigate(searchUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
-
-            // Random wait time (different for different engines)
-            int waitTime = BASE_WAIT_TIME_MS + random.nextInt(RANDOM_WAIT_TIME_MS);
-            if ("bing".equals(config.name.toLowerCase())) {
-                waitTime += 500; // Bing needs a bit more time
-            }
-            page.waitForTimeout(waitTime);
-
-            List<ElementHandle> results = findSearchResults(page, config);
-            if (results.isEmpty()) {
-                return SearchEngineResult.empty(config.name, query);
-            }
-
-            List<SearchResultData> resultData = extractSearchResults(results, config);
-            return new SearchEngineResult(config.name, query, resultData, config);
-
-        } catch (TimeoutError e) {
-            throw new SearchException(config.name + " search timed out");
+            playwright = Playwright.create();
+            browser = playwright.chromium().launch(new BrowserType.LaunchOptions()
+                    .setHeadless(BROWSER_HEADLESS)
+                    .setTimeout(DEFAULT_TIMEOUT_MS)
+                    .setArgs(BROWSER_ARGS));
+            logger.info("Browser initialized successfully");
         } catch (Exception e) {
-            throw new SearchException(config.name + " search failed: " + e.getMessage());
+            logger.error("Browser initialization failed", e);
         }
     }
 
-    private List<ElementHandle> findSearchResults(Page page, SearchEngineConfig config) {
-        List<ElementHandle> results = null;
-
-        for (String selector : config.resultSelectors) {
-            try {
-                page.waitForSelector(selector, new Page.WaitForSelectorOptions()
-                        .setTimeout(SELECTOR_TIMEOUT_MS)
-                        .setState(WaitForSelectorState.VISIBLE));
-                results = page.querySelectorAll(selector);
-                if (!results.isEmpty()) {
-                    logger.debug("Found {} results using {} selector: {}",
-                            results.size(), config.name, selector);
-                    break;
-                }
-            } catch (TimeoutError e) {
-                logger.debug("{} selector {} timed out, trying next", config.name, selector);
-                continue;
-            }
-        }
-
-        return results != null ? results : Collections.emptyList();
+    /**
+     * This method creates a new browser context.
+     * It sets a random user agent and other browser options to avoid being detected as a bot.
+     */
+    private BrowserContext createContext() {
+        return browser.newContext(new Browser.NewContextOptions()
+                .setUserAgent(getRandomUserAgent())
+                .setViewportSize(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+                .setBypassCSP(true)
+                .setIgnoreHTTPSErrors(true)
+                .setJavaScriptEnabled(true)
+                .setExtraHTTPHeaders(DEFAULT_HEADERS));
     }
 
-    private List<SearchResultData> extractSearchResults(List<ElementHandle> results, SearchEngineConfig config) {
-        List<SearchResultData> extractedResults = new ArrayList<>();
+    /**
+     * This method sets up the page for scraping.
+     * It adds a stealth script to avoid bot detection and blocks unnecessary resources to speed up the scraping.
+     */
+    private void setupPage(Page page) {
+        page.addInitScript(STEALTH_SCRIPT);
 
-        for (int i = 0; i < Math.min(results.size(), config.maxResults); i++) {
+        page.route("**/*", route -> {
+            String url = route.request().url();
+            String resourceType = route.request().resourceType();
+
             try {
-                ElementHandle result = results.get(i);
-                SearchResultData resultData = extractResultData(result, config);
-                if (resultData.isValid()) {
-                    extractedResults.add(resultData);
+                // Block unnecessary resources such as images, stylesheets, fonts, and media.
+                if (resourceType.equals("image") || resourceType.equals("stylesheet") ||
+                        resourceType.equals("font") || resourceType.equals("media")) {
+                    route.abort();
+                } else {
+                    route.resume();
                 }
             } catch (Exception e) {
-                logger.debug("Failed to extract result {}: {}", i + 1, e.getMessage());
-                continue;
+                // If routing fails, try to resume the request.
+                try {
+                    route.resume();
+                } catch (Exception ignored) {
+                    logger.debug("Route handling failed for: {}", url);
+                }
             }
-        }
-
-        return extractedResults;
+        });
     }
 
-    private SearchResultData extractResultData(ElementHandle result, SearchEngineConfig config) {
-        // Try primary title selector first, then fallback
-        ElementHandle titleElement = result.querySelector(config.primaryTitleSelector);
-        if (titleElement == null) {
-            titleElement = result.querySelector(config.fallbackTitleSelectors);
-        }
 
-        // Try primary snippet selector first, then fallback
-        ElementHandle snippetElement = result.querySelector(config.primarySnippetSelector);
-        if (snippetElement == null) {
-            snippetElement = result.querySelector(config.fallbackSnippetSelectors);
-        }
-
-        if (titleElement != null && snippetElement != null) {
-            String title = titleElement.textContent();
-            String link = titleElement.getAttribute("href");
-            String snippet = snippetElement.textContent();
-
-            return new SearchResultData(title, link, snippet);
-        }
-
-        return SearchResultData.invalid();
-    }
-
+    /**
+     * This method returns a random user agent from a list of user agents.
+     */
     private String getRandomUserAgent() {
-        String selectedAgent = USER_AGENTS.get(random.nextInt(USER_AGENTS.size()));
-        logger.debug("Selected user agent: {}...", selectedAgent.substring(0, Math.min(50, selectedAgent.length())));
-        return selectedAgent;
+        return USER_AGENTS.get(random.nextInt(USER_AGENTS.size()));
     }
 
-    private Map<String, String> createHeaders() {
-        String acceptLanguage = ACCEPT_LANGUAGES.get(random.nextInt(ACCEPT_LANGUAGES.size()));
-        return DEFAULT_HEADERS;
-    }
-
-    private void configurePageStealth(Page page) {
-        String stealthScript = String.format(STEALTH_SCRIPT);
-        page.addInitScript(stealthScript);
-    }
-
-    private void setupResourceBlocking(Page page) {
-        page.route(BLOCKED_RESOURCES, route -> route.abort());
-    }
-
-    private static String truncateText(String text, int maxLength) {
-        if (text == null || text.length() <= maxLength) return text;
-
-        int lastSpace = text.lastIndexOf(' ', maxLength);
-        if (lastSpace > maxLength - TRUNCATE_THRESHOLD) {
-            return text.substring(0, lastSpace) + "...";
-        }
-        return text.substring(0, maxLength) + "...";
-    }
-
-    private static String shortenUrl(String url) {
-        if (url == null || url.length() <= URL_DISPLAY_MAX_LENGTH) return url;
-
-        try {
-            URL parsedUrl = new URL(url);
-            return parsedUrl.getHost() + "..." + url.substring(url.length() - URL_SUFFIX_LENGTH);
-        } catch (Exception e) {
-            return url.substring(0, URL_DISPLAY_MAX_LENGTH) + "...";
-        }
-    }
-
-    // Helper classes
-    private static class SearchEngineConfig {
+    /**
+     * This class represents a search engine configuration.
+     * It contains the name, URL template, and selectors for the search engine.
+     */
+    private static class SearchEngine {
         final String name;
         final String urlTemplate;
-        final String[] resultSelectors;
-        final String primaryTitleSelector;
-        final String fallbackTitleSelectors;
-        final String primarySnippetSelector;
-        final String fallbackSnippetSelectors;
-        final int maxResults;
-        final int snippetLength;
-        final String emoji;
+        final String resultSelector;
+        final String titleSelector;
+        final String snippetSelector;
 
-        SearchEngineConfig(String name, String urlTemplate, String[] resultSelectors,
-                           String primaryTitleSelector, String fallbackTitleSelectors,
-                           String primarySnippetSelector, String fallbackSnippetSelectors,
-                           int maxResults, int snippetLength, String emoji) {
+        SearchEngine(String name, String urlTemplate, String resultSelector,
+                     String titleSelector, String snippetSelector) {
             this.name = name;
             this.urlTemplate = urlTemplate;
-            this.resultSelectors = resultSelectors;
-            this.primaryTitleSelector = primaryTitleSelector;
-            this.fallbackTitleSelectors = fallbackTitleSelectors;
-            this.primarySnippetSelector = primarySnippetSelector;
-            this.fallbackSnippetSelectors = fallbackSnippetSelectors;
-            this.maxResults = maxResults;
-            this.snippetLength = snippetLength;
-            this.emoji = emoji;
-        }
-    }
-
-    private static class SearchRequest {
-        private final boolean valid;
-        private final String errorMessage;
-        private final String query;
-        private final String preferredEngine;
-
-        private SearchRequest(boolean valid, String errorMessage, String query, String preferredEngine) {
-            this.valid = valid;
-            this.errorMessage = errorMessage;
-            this.query = query;
-            this.preferredEngine = preferredEngine;
-        }
-
-        static SearchRequest valid(String query, String preferredEngine) {
-            return new SearchRequest(true, null, query, preferredEngine);
-        }
-
-        static SearchRequest invalid(String errorMessage) {
-            return new SearchRequest(false, errorMessage, null, null);
-        }
-
-        boolean isValid() {
-            return valid;
-        }
-
-        String getErrorMessage() {
-            return errorMessage;
-        }
-
-        String getQuery() {
-            return query;
-        }
-
-        String getPreferredEngine() {
-            return preferredEngine;
-        }
-    }
-
-    private static class SearchResultData {
-        final String title;
-        final String link;
-        final String snippet;
-        final boolean valid;
-
-        SearchResultData(String title, String link, String snippet) {
-            this.title = title;
-            this.link = link;
-            this.snippet = snippet;
-            this.valid = title != null && !title.isEmpty() && link != null && !link.isEmpty();
-        }
-
-        static SearchResultData invalid() {
-            return new SearchResultData(null, null, null);
-        }
-
-        boolean isValid() {
-            return valid;
-        }
-    }
-
-    private static class SearchEngineResult {
-        private final String engineName;
-        private final String query;
-        private final List<SearchResultData> items;
-        private final SearchEngineConfig config;
-
-        SearchEngineResult(String engineName, String query, List<SearchResultData> items, SearchEngineConfig config) {
-            this.engineName = engineName;
-            this.query = query;
-            this.items = items != null ? items : Collections.emptyList();
-            this.config = config;
-        }
-
-        static SearchEngineResult empty(String engineName, String query) {
-            return new SearchEngineResult(engineName, query, Collections.emptyList(), null);
-        }
-
-        boolean hasResults() {
-            return !items.isEmpty();
-        }
-
-        int getResultCount() {
-            return items.size();
-        }
-
-        String getFormattedResults() {
-            if (items.isEmpty()) {
-                return "";
-            }
-
-            StringBuilder result = new StringBuilder();
-            result.append(config.emoji).append(" **").append(engineName).append(" Results for: ")
-                    .append(query).append("** ");
-
-            for (int i = 0; i < items.size(); i++) {
-                SearchResultData item = items.get(i);
-                result.append("**").append(i + 1).append(". ").append(item.title).append("** ");
-
-                if (!item.snippet.isEmpty()) {
-                    result.append("📝 ").append(truncateText(item.snippet, config.snippetLength)).append(" ");
-                }
-
-                result.append("🔗 ").append(shortenUrl(item.link)).append(" ");
-            }
-
-            return result.toString();
-        }
-    }
-
-    // Custom exception
-    private static class SearchException extends Exception {
-        SearchException(String message) {
-            super(message);
+            this.resultSelector = resultSelector;
+            this.titleSelector = titleSelector;
+            this.snippetSelector = snippetSelector;
         }
     }
 }

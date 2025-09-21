@@ -1,6 +1,10 @@
 package com.mcp.webScraper.entries;
 
+import java.util.UUID;
+
 public class RequestEntries {
+
+    private long requestId;
 
     private String query;
 
@@ -9,9 +13,17 @@ public class RequestEntries {
     public RequestEntries() {
     }
 
-    public RequestEntries(String query, int results) {
+    public RequestEntries(long requestId, String query, int results) {
+        this.requestId = requestId;
         this.query = query;
         this.results = results;
+    }
+
+    public int getRequestId() {
+        int hash = UUID.randomUUID().hashCode();
+        hash = hash & 0x7fffffff; // mask the sign bit
+        return hash;
+
     }
 
     public String getQuery() {

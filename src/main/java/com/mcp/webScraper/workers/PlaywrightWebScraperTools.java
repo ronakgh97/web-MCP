@@ -1,441 +1,299 @@
 package com.mcp.webScraper.workers;
 
+import com.mcp.webScraper.entries.ScrapeResult;
 import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.WaitUntilState;
 import jakarta.annotation.PreDestroy;
+import org.apache.pdfbox.io.RandomAccessReadBuffer;
+import org.apache.pdfbox.pdfparser.PDFParser;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.security.SecureRandom;
-import java.util.Base64;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static com.mcp.webScraper.workers.PlaywrightConfig.*;
 
+/**
+ * This service provides the functionality to scrape web pages using Playwright.
+ * It can handle both HTML pages and PDF documents.
+ */
 @Service
 public class PlaywrightWebScraperTools {
 
     private static final Logger logger = LoggerFactory.getLogger(PlaywrightWebScraperTools.class);
 
-    // CSS Selectors
-    private static final String MAIN_CONTENT_SELECTORS = "main, article, .content, .post, .entry";
-    private static final String REMOVE_ELEMENTS_SELECTORS = "script, style, nav, header, footer, aside";
-    private static final String META_DESCRIPTION_SELECTOR = "meta[name=description]";
-    private static final String AUTHOR_SELECTORS = "meta[name=author], .author, .byline";
-    private static final String DATE_SELECTORS = "time, .date, .published, meta[property='article:published_time']";
+    // A CSS selector to identify the main content of a web page.
+    private static final String MAIN_CONTENT_SELECTOR = "main, article, [role=main], .content, .post, .entry, .blog, .story";
 
-    // Structured data selectors
-    private static final String TABLE_SELECTOR = "table";
-    private static final String LIST_SELECTOR = "ul, ol";
-    private static final String LINK_SELECTOR = "a[href]";
-    private static final String IMAGE_SELECTOR = "img[src]";
-
-    // Instance variables
+    // Instance variables for Playwright and the browser.
     private volatile Playwright playwright;
     private volatile Browser browser;
     private final SecureRandom random = new SecureRandom();
     private final AtomicLong scrapeCount = new AtomicLong(0);
 
+    /**
+     * Constructor for the PlaywrightWebScraperTools.
+     * Initializes the Playwright browser.
+     */
     public PlaywrightWebScraperTools() {
-        logger.info("Initializing Playwright web scraper tool...");
-        try {
-            playwright = Playwright.create();
-            browser = createBrowser();
-            logger.info("Playwright web scraper initialized successfully");
-        } catch (Exception e) {
-            logger.error("Failed to initialize Playwright web scraper", e);
-            throw new ScraperInitializationException("Failed to initialize web scraper", e);
-        }
+        logger.info("Initializing Playwright scraper tool...");
+        initializeBrowser();
     }
 
+    /**
+     * This method is called before the bean is destroyed.
+     * It closes the Playwright browser and releases any resources.
+     */
     @PreDestroy
     public void cleanup() {
-        logger.info("Shutting down Playwright web scraper tool");
+        logger.info("Shutting down Playwright scraper tool");
         try {
             if (browser != null) browser.close();
             if (playwright != null) playwright.close();
-            logger.info("Playwright web scraper cleaned up successfully. Total scrapes: {}", scrapeCount.get());
         } catch (Exception e) {
-            logger.error("Error during web scraper cleanup", e);
+            logger.error("Error during cleanup", e);
         }
     }
 
-    public String scrape_webpage(String url) {
+    /**
+     * This is the main method for scraping a web page.
+     * It takes a URL and returns the scraped content.
+     */
+    public ScrapeResult scrapeWebpage(String url) {
+        if (browser == null) {
+            return new ScrapeResult(false, null, "Browser not initialized", url);
+        }
+
         long scrapeId = scrapeCount.incrementAndGet();
-        logger.debug("Starting webpage scrape #{} for URL: {}", scrapeId, url);
+        logger.debug("Starting scrape #{}: {}", scrapeId, url);
 
-        // Validate URL
-        UrlValidationResult validation = validateUrl(url);
-        if (!validation.isValid()) {
-            logger.warn("Invalid URL for scrape #{}: {}", scrapeId, validation.getErrorMessage());
-            return "❌ " + validation.getErrorMessage();
+        if (!isValidUrl(url)) {
+            return new ScrapeResult(false, null, "Invalid URL", url);
         }
 
-        try {
-            String html = fetchPageContent(url, scrapeId);
-            String result = parseWebpageContent(html, url);
-
-            logger.info("Webpage scrape #{} completed successfully for domain: {}",
-                    scrapeId, extractDomain(url));
-            return result;
-
-        } catch (ScrapingException e) {
-            logger.error("Webpage scrape #{} failed: {}", scrapeId, e.getMessage());
-            return "❌ " + e.getMessage();
-        } catch (Exception e) {
-            logger.error("Unexpected error during webpage scrape #{}", scrapeId, e);
-            return "❌ An unexpected error occurred while scraping the webpage.";
-        }
-    }
-
-    private Browser createBrowser() throws ScraperInitializationException {
-        try {
-            BrowserType.LaunchOptions launchOptions = new BrowserType.LaunchOptions()
-                    .setHeadless(BROWSER_HEADLESS)
-                    .setArgs(BROWSER_ARGS);
-
-            return playwright.chromium().launch(launchOptions);
-        } catch (Exception e) {
-            throw new ScraperInitializationException("Failed to create browser", e);
-        }
-    }
-
-    private String fetchPageContent(String url, long scrapeId) throws ScrapingException {
-        BrowserContext context = null;
-        try {
-            String userAgent = getRandomUserAgent();
-
-            context = browser.newContext(new Browser.NewContextOptions()
-                    .setUserAgent(userAgent)
-                    .setViewportSize(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
-                    .setJavaScriptEnabled(true)
-                    .setExtraHTTPHeaders(DEFAULT_HEADERS)
-            );
-
-            Page page = context.newPage();
-            configurePageStealth(page);
-            setPageTimeouts(page);
-
-            return fetchWithRetry(page, url, scrapeId);
-
-        } catch (Exception e) {
-            throw new ScrapingException("Failed to fetch page content: " + e.getMessage(), e);
-        } finally {
-            if (context != null) {
-                try {
-                    context.close();
-                } catch (Exception e) {
-                    logger.warn("Error closing browser context for scrape #{}", scrapeId, e);
-                }
+        // If the URL points to a PDF file, use the PDF extraction logic.
+        if (url.toLowerCase().endsWith(".pdf")) {
+            try {
+                logger.debug("Scraping pdf content");
+                String pdfContent = extractPdfContent(url);
+                return new ScrapeResult(true, pdfContent, null, url);
+            } catch (Exception e) {
+                logger.error("PDF extraction failed for {}: {}", url, e.getMessage());
+                return new ScrapeResult(false, null, "PDF extraction failed: " + e.getMessage(), url);
             }
         }
+
+        // For HTML pages, use Playwright to fetch and extract the content.
+        try (BrowserContext context = createContext()) {
+            Page page = context.newPage();
+            setupPage(page);
+
+            return fetchAndExtractContentStructured(page, url, scrapeId);
+
+        } catch (Exception e) {
+            logger.error("Scrape #{} failed: {}", scrapeId, e.getMessage());
+            return new ScrapeResult(false, null, e.getMessage(), url);
+        }
     }
 
-    private String fetchWithRetry(Page page, String url, long scrapeId) throws ScrapingException {
-        for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+
+    /**
+     * This method fetches the content of a web page with retry logic.
+     * It will retry the request up to MAX_RETRIES times if it fails.
+     */
+    private ScrapeResult fetchAndExtractContentStructured(Page page, String url, long scrapeId) {
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             try {
-                logger.debug("Attempt {} of {} for scrape #{}", attempt, MAX_RETRY_ATTEMPTS, scrapeId);
+                logger.debug("Scrape #{} attempt {} of {}", scrapeId, attempt, MAX_RETRIES);
 
                 Response response = page.navigate(url, new Page.NavigateOptions()
                         .setWaitUntil(WaitUntilState.DOMCONTENTLOADED)
                         .setTimeout(NAVIGATION_TIMEOUT_MS));
 
+                int status = response != null ? response.status() : 0;
                 if (response == null || !response.ok()) {
-                    throw new ScrapingException("Failed to load page: " +
-                            (response != null ? "HTTP " + response.status() : "No response"));
+                    logger.warn("Failed to load page: " + (response != null ? "HTTP " + status : "No response"));
+                    return new ScrapeResult(false, null, "Failed to load page: " + (response != null ? "HTTP " + status : "No response"), url);
                 }
 
-                // Wait for network to be idle
-                page.waitForLoadState(LoadState.NETWORKIDLE,
-                        new Page.WaitForLoadStateOptions().setTimeout(NETWORK_IDLE_TIMEOUT_MS));
+                try {
+                    page.waitForLoadState(LoadState.NETWORKIDLE,
+                            new Page.WaitForLoadStateOptions().setTimeout(NETWORK_IDLE_TIMEOUT_MS));
+                } catch (Exception ignored) {
+                }
 
-                // Additional wait for dynamic content
-                page.waitForTimeout(ADDITIONAL_WAIT_MS);
-
-                return page.content();
+                String content = extractContent(page);
+                return new ScrapeResult(true, content, null, url);
 
             } catch (Exception e) {
-                if (attempt == MAX_RETRY_ATTEMPTS) {
-                    throw new ScrapingException("Failed after " + MAX_RETRY_ATTEMPTS + " attempts: " + e.getMessage(), e);
+                if (attempt == MAX_RETRIES) {
+                    return new ScrapeResult(false, null,
+                            "Failed after " + MAX_RETRIES + " attempts: " + e.getMessage(), url);
                 }
 
-                logger.warn("Attempt {} failed for scrape #{}, retrying: {}", attempt, scrapeId, e.getMessage());
+                long backoff = RETRY_DELAY_BASE_MS * attempt;
+                logger.warn("Scrape #{} attempt {} failed: {} – retrying in {} ms",
+                        scrapeId, attempt, e.getMessage(), backoff);
+
                 try {
-                    Thread.sleep(RETRY_DELAY_BASE_MS * attempt);
+                    Thread.sleep(backoff);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
-                    throw new ScrapingException("Scraping interrupted", ie);
                 }
             }
         }
 
-        throw new ScrapingException("Unexpected end of retry loop");
+        return new ScrapeResult(false, null, "Unexpected end of retry loop", url);
     }
 
-    private UrlValidationResult validateUrl(String url) {
+
+    /**
+     * This method extracts the main content of a web page.
+     * It first tries to extract the visible text from the main content element.
+     * If that fails, it falls back to using Jsoup to parse the HTML and extract the text.
+     */
+    private String extractContent(Page page) {
+        try {
+            // Wait for the main content to appear on the page.
+            Locator mainLocator = page.locator(MAIN_CONTENT_SELECTOR).first();
+            try {
+                mainLocator.waitFor(new Locator.WaitForOptions().setTimeout(WAIT_TIMEOUT_MS));
+            } catch (PlaywrightException e) {
+                logger.warn("Main content not found, falling back to full page text");
+            }
+
+            // Extract the visible text from the main content element.
+            String content = mainLocator.isVisible() ? mainLocator.innerText() : page.innerText("body");
+
+            if (content == null || content.trim().isEmpty()) {
+                // If the main content is empty, fall back to using Jsoup to parse the HTML and extract the text.
+                Document doc = Jsoup.parse(page.content());
+                doc.select("script, style, nav, header, footer, aside, noscript, iframe, img, picture, source").remove();
+                Element mainContent = doc.selectFirst(MAIN_CONTENT_SELECTOR);
+                content = mainContent != null ? mainContent.text() : doc.body().text();
+            }
+
+            // Clean up the whitespace in the content.
+            content = content.trim().replaceAll("\\s+", " ");
+
+            // Truncate the content if it is too long.
+            if (content.length() > MAX_CONTENT_LENGTH) {
+                int lastSpace = content.lastIndexOf(' ', MAX_CONTENT_LENGTH);
+                if (lastSpace > MAX_CONTENT_LENGTH - CONTENT_TRUNCATE_THRESHOLD) {
+                    content = content.substring(0, lastSpace) + "...";
+                } else {
+                    content = content.substring(0, MAX_CONTENT_LENGTH) + "...";
+                }
+            }
+
+            return content;
+
+        } catch (Exception e) {
+            logger.error("Content extraction failed: {}", e.getMessage());
+            return "Failed to extract content";
+        }
+    }
+
+    /**
+     * This method extracts the text content of a PDF document.
+     */
+    private String extractPdfContent(String url) throws IOException {
+        try (InputStream in = new URL(url).openStream();
+             PDDocument document = new PDFParser(new RandomAccessReadBuffer(in)).parse()) {
+
+            if (document.isEncrypted()) {
+                throw new IOException("Encrypted PDFs are not supported");
+            }
+
+            PDFTextStripper stripper = new PDFTextStripper();
+            String text = stripper.getText(document);
+
+            // Truncate the content if it is too long.
+            if (text.length() > MAX_CONTENT_LENGTH) {
+                int lastSpace = text.lastIndexOf(' ', MAX_CONTENT_LENGTH);
+                text = text.substring(0, lastSpace > MAX_CONTENT_LENGTH - CONTENT_TRUNCATE_THRESHOLD ? lastSpace : MAX_CONTENT_LENGTH) + "...";
+            }
+
+            return text.trim();
+        }
+    }
+
+
+    /**
+     * This method validates a URL.
+     * It checks if the URL is null or empty, and if it has a valid protocol (http or https).
+     */
+    private boolean isValidUrl(String url) {
         if (url == null || url.trim().isEmpty()) {
-            return UrlValidationResult.invalid("URL cannot be empty.");
+            return false;
         }
 
         try {
             URL parsedUrl = new URL(url.trim());
             String protocol = parsedUrl.getProtocol().toLowerCase();
-
-            if (!"http".equals(protocol) && !"https".equals(protocol)) {
-                return UrlValidationResult.invalid("URL must use HTTP or HTTPS protocol.");
-            }
-
-            if (parsedUrl.getHost() == null || parsedUrl.getHost().trim().isEmpty()) {
-                return UrlValidationResult.invalid("URL must have a valid host.");
-            }
-
-            return UrlValidationResult.valid(url.trim());
-
+            return ("http".equals(protocol) || "https".equals(protocol)) &&
+                    parsedUrl.getHost() != null && !parsedUrl.getHost().trim().isEmpty();
         } catch (MalformedURLException e) {
-            return UrlValidationResult.invalid("Invalid URL format: " + e.getMessage());
+            return false;
         }
     }
 
+    /**
+     * This method initializes the Playwright browser.
+     * It creates a new Playwright instance and launches a Chromium browser.
+     */
+    private void initializeBrowser() {
+        try {
+            playwright = Playwright.create();
+            browser = playwright.chromium().launch(new BrowserType.LaunchOptions()
+                    .setHeadless(BROWSER_HEADLESS)
+                    .setTimeout(DEFAULT_TIMEOUT_MS)
+                    .setArgs(BROWSER_ARGS));
+            logger.info("Browser initialized successfully");
+        } catch (Exception e) {
+            logger.error("Browser initialization failed", e);
+        }
+    }
+
+    /**
+     * This method creates a new browser context.
+     * It sets a random user agent and other browser options to avoid being detected as a bot.
+     */
+    private BrowserContext createContext() {
+        return browser.newContext(new Browser.NewContextOptions()
+                .setUserAgent(getRandomUserAgent())
+                .setViewportSize(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+                .setBypassCSP(true)
+                .setIgnoreHTTPSErrors(true)
+                .setJavaScriptEnabled(true)
+                .setExtraHTTPHeaders(DEFAULT_HEADERS));
+    }
+
+    /**
+     * This method sets up the page for scraping.
+     * It adds a stealth script to avoid bot detection.
+     */
+    private void setupPage(Page page) {
+        page.addInitScript(STEALTH_SCRIPT);
+        page.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
+    }
+
+    /**
+     * This method returns a random user agent from a list of user agents.
+     */
     private String getRandomUserAgent() {
         return USER_AGENTS.get(random.nextInt(USER_AGENTS.size()));
-    }
-
-    private void configurePageStealth(Page page) {
-        page.addInitScript(STEALTH_SCRIPT);
-    }
-
-    private void setPageTimeouts(Page page) {
-        page.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
-        page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
-    }
-
-    private String parseWebpageContent(String html, String url) throws ScrapingException {
-        try {
-            Document doc = Jsoup.parse(html);
-
-            WebpageMetadata metadata = extractMetadata(doc, url);
-            String mainContent = extractMainContent(doc);
-
-            return formatWebpageResult(metadata, mainContent);
-
-        } catch (Exception e) {
-            throw new ScrapingException("Failed to parse webpage content: " + e.getMessage(), e);
-        }
-    }
-
-    private WebpageMetadata extractMetadata(Document doc, String url) {
-        String title = doc.title();
-        String domain = extractDomain(url);
-        String description = extractMetaDescription(doc);
-        String author = extractAuthor(doc);
-        String publishDate = extractPublishDate(doc);
-
-        return new WebpageMetadata(title, domain, description, author, publishDate);
-    }
-
-    private String extractMainContent(Document doc) {
-        // Remove unwanted elements
-        doc.select(REMOVE_ELEMENTS_SELECTORS).remove();
-
-        // Try to find main content area
-        Element mainContent = doc.selectFirst(MAIN_CONTENT_SELECTORS);
-        if (mainContent != null) {
-            return mainContent.text();
-        }
-
-        // Fallback to body content
-        return doc.body().text();
-    }
-
-    private String formatWebpageResult(WebpageMetadata metadata, String content) {
-        String result = truncateContent(content, MAX_CONTENT_LENGTH);
-        return result;
-    }
-
-    private String extractStructuredData(String html, String selector, String url) throws ScrapingException {
-        try {
-            Document doc = Jsoup.parse(html);
-
-            if (selector != null && !selector.trim().isEmpty()) {
-                return extractSpecificElements(doc, selector.trim(), url);
-            } else {
-                return extractCommonStructuredData(doc, url);
-            }
-
-        } catch (Exception e) {
-            throw new ScrapingException("Failed to extract structured data: " + e.getMessage(), e);
-        }
-    }
-
-    private String extractSpecificElements(Document doc, String selector, String url) {
-        Elements elements = doc.select(selector);
-
-        if (elements.isEmpty()) {
-            return String.format("❌ No elements found with selector: '%s'", selector);
-        }
-
-        StringBuilder result = new StringBuilder();
-        result.append(String.format("📊 **Structured Data from %s**\n\n", extractDomain(url)));
-        result.append(String.format("🎯 **Selector:** %s\n", selector));
-        result.append(String.format("📈 **Found:** %d elements\n\n", elements.size()));
-
-        int count = 0;
-        for (Element element : elements) {
-            if (count >= MAX_STRUCTURED_ELEMENTS) break;
-
-            String text = element.text();
-            if (!text.isEmpty()) {
-                result.append(String.format("**%d.** %s\n", count + 1,
-                        text.length() > 100 ? text.substring(0, 100) + "..." : text));
-                count++;
-            }
-        }
-
-        return result.toString();
-    }
-
-    private String extractCommonStructuredData(Document doc, String url) {
-        StringBuilder result = new StringBuilder();
-        result.append(String.format("📊 **Structured Data from %s**\n\n", extractDomain(url)));
-
-        // Count different types of structured elements
-        int tables = doc.select(TABLE_SELECTOR).size();
-        int lists = doc.select(LIST_SELECTOR).size();
-        int links = doc.select(LINK_SELECTOR).size();
-        int images = doc.select(IMAGE_SELECTOR).size();
-
-        if (tables > 0) result.append(String.format("📋 **Tables:** %d found\n", tables));
-        if (lists > 0) result.append(String.format("📝 **Lists:** %d found\n", lists));
-        if (links > 0) result.append(String.format("🔗 **Links:** %d found\n", links));
-        if (images > 0) result.append(String.format("🖼️ **Images:** %d found\n", images));
-
-        if (tables == 0 && lists == 0 && links == 0 && images == 0) {
-            result.append("ℹ️ No common structured data elements found.\n");
-        }
-
-        return result.toString();
-    }
-
-    private String extractDomain(String url) {
-        try {
-            return new URL(url).getHost();
-        } catch (Exception e) {
-            return "Unknown";
-        }
-    }
-
-    private String extractMetaDescription(Document doc) {
-        Element desc = doc.selectFirst(META_DESCRIPTION_SELECTOR);
-        return desc != null ? desc.attr("content") : "";
-    }
-
-    private String extractAuthor(Document doc) {
-        Element author = doc.selectFirst(AUTHOR_SELECTORS);
-        return author != null ? author.text() : "";
-    }
-
-    private String extractPublishDate(Document doc) {
-        Element date = doc.selectFirst(DATE_SELECTORS);
-        return date != null ? (date.hasAttr("datetime") ? date.attr("datetime") : date.text()) : "";
-    }
-
-    private String truncateContent(String content, int maxLength) {
-        if (content.length() <= maxLength) {
-            return content;
-        }
-
-        int lastSpace = content.lastIndexOf(' ', maxLength);
-        if (lastSpace > maxLength - CONTENT_TRUNCATE_THRESHOLD) {
-            return content.substring(0, lastSpace) + "...\n\n📄 [Content truncated - full text extracted]";
-        }
-        return content.substring(0, maxLength) + "...\n\n📄 [Content truncated - full text extracted]";
-    }
-
-    private String generateContentHash(String content) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] hash = md.digest(content.getBytes(StandardCharsets.UTF_8));
-            return Base64.getEncoder().encodeToString(hash);
-        } catch (Exception e) {
-            logger.warn("Failed to generate content hash", e);
-            return "hash-generation-failed";
-        }
-    }
-
-    // Helper classes
-    private static class UrlValidationResult {
-        private final boolean valid;
-        private final String errorMessage;
-        private final String cleanUrl;
-
-        private UrlValidationResult(boolean valid, String errorMessage, String cleanUrl) {
-            this.valid = valid;
-            this.errorMessage = errorMessage;
-            this.cleanUrl = cleanUrl;
-        }
-
-        static UrlValidationResult valid(String cleanUrl) {
-            return new UrlValidationResult(true, null, cleanUrl);
-        }
-
-        static UrlValidationResult invalid(String errorMessage) {
-            return new UrlValidationResult(false, errorMessage, null);
-        }
-
-        boolean isValid() {
-            return valid;
-        }
-
-        String getErrorMessage() {
-            return errorMessage;
-        }
-
-        String getCleanUrl() {
-            return cleanUrl;
-        }
-    }
-
-    private static class WebpageMetadata {
-        final String title;
-        final String domain;
-        final String description;
-        final String author;
-        final String publishDate;
-
-        WebpageMetadata(String title, String domain, String description, String author, String publishDate) {
-            this.title = title != null ? title : "";
-            this.domain = domain != null ? domain : "Unknown";
-            this.description = description != null ? description : "";
-            this.author = author != null ? author : "";
-            this.publishDate = publishDate != null ? publishDate : "";
-        }
-    }
-
-    // Custom exceptions
-    private static class ScraperInitializationException extends RuntimeException {
-        ScraperInitializationException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
-
-    //Custom Exceptions
-    private static class ScrapingException extends Exception {
-        ScrapingException(String message) {
-            super(message);
-        }
-
-        ScrapingException(String message, Throwable cause) {
-            super(message, cause);
-        }
     }
 }
