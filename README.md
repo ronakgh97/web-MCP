@@ -8,29 +8,102 @@ This tool leverages Playwright for robust browser automation, allowing it to han
 
 ## Features
 
-*   **Robust Web Scraping:** Uses `Playwright` to render and scrape modern web pages.
+*   **Simple Web Scraping:** Uses `Playwright` to render and scrape modern web pages.
 *   **Simple Search Integration:** Searches `DuckDuckGo` to find relevant pages before scraping.
 *   **RestFul API:** Provides a simple API for initiating scrapes.
 *   **Scalable Architecture:** Utilizes multiple Playwright instances and `hash routing` to handle `concurrent requests` safely. (Will replace this with ```ThreadPool``` and ```ExecutorService```)
 *   **AI:** To be integrated with AI models for `structured data extraction` and analysis. (***TODO***)
 
 
+## ***Simple Design (dev)***
+
 ```mermaid
 flowchart TD
-    User[User Query] --> API[Scraper API]
-API -->|Generate\n Unique Query ID| UID[Query ID]
-UID -->|Query ID % Total Instances available | Router[Hash Router]
+    User[User Query] --> API[ServiceController]
+API -->|Generate RequestID| UID[Unique Request ID<br/>Ex: 1812403247]
 
-Router -->|0| P0[Playwright Instance #0]
-Router -->|1| P1[Playwright Instance #1]
-Router -->|2| P2[Playwright Instance #2]
+UID --> Router{Hash Router<br/>ID % Total Instances<br/>let mut n: i32 = 10}
 
-P0 --> Result[Scraped Results]
-P1 --> Result
-P2 --> Result
+Router -->|ID % n = 7| P7[Browser Instance #7<br/>SearchEngine]
+Router -->|ID % n = 2| P2[Browser Instance #2<br/>SearchEngine]
+Router -->|ID % n = 5| P5[Browser Instance #5<br/>SearchEngine]
+
+P7 --> Search7[ScrapeEngine]
+P2 --> Search2[ScrapeEngine]
+P5 --> Search5[ScrapeEngine]
+
+Search7 --> Scrape7[Content Scraping]
+Search2 --> Scrape2[Content Scraping]
+Search5 --> Scrape5[Content Scraping]
+
+Scrape7 --> Result[Aggregated Results]
+Scrape2 --> Result[Aggregated Results]
+Scrape5 --> Result[Aggregated Results]
 
 Result --> API --> User
 
+style User fill:black
+style API fill:grey
+style Router fill:black
+style P7 fill:black
+style P2 fill:black
+style P5 fill:black
+style Result fill:grey
+
+```
+
+`Code Flow`
+
+```text
+PlaywrightBrowserSearchTools instance = allocator.getSearchInstance(requestId);
+List<SearchResult> results = instance.performSearch(query);
+ No cleanup needed - fire and forget! 
+```
+
+## ***Improved Design***
+
+```mermaid
+flowchart TD
+User[User Query] --> API[ServiceController]
+API -->|Generate RequestID| UID[Unique Request ID<br/>Ex: 1812403247]
+
+UID --> Allocator[PlaywrightAllocator<br/>Resource Manager]
+Allocator --> Semaphore{Semaphore Gate<br/>Max nth Concurrent}
+Semaphore -->|Wait in Queue| Queue[Request Queue<br/>60s Timeout]
+Semaphore -->|Available Slot| Available[Slot Available]
+    
+Available --> InstancePool[Instance Pool<br/>nth Browser Instances]
+    
+InstancePool --> Lock1{Instance #1<br/>Available?}
+InstancePool --> Lock2{Instance #2<br/>Available?}
+InstancePool --> Lock3{Instance #3<br/>Available?}
+    
+Lock1 -->|Acquired| Work1[Perform Search<br/>& Scraping]
+Lock2 -->|Acquired| Work2[Perform Search<br/>& Scraping] 
+Lock3 -->|Acquired| Work3[Perform Search<br/>& Scraping]
+    
+Work1 --> Release1[Release Instance #1<br/>Return to Pool]
+Work2 --> Release2[Release Instance #2<br/>Return to Pool]
+Work3 --> Release3[Release Instance #3<br/>Return to Pool]
+    
+Release1 --> Metrics[Usage Metrics<br/>Tracking & Monitoring]
+Release2 --> Metrics
+Release3 --> Metrics
+    
+Metrics --> Result[Response with Stats]
+Result --> API --> User
+    
+Queue -->|Timeout| TimeoutError[Request Timeout<br/>503 Service Unavailable]
+TimeoutError --> API
+    
+style User fill:black
+style API fill:grey
+style Semaphore fill:black
+style Queue fill:grey
+style InstancePool fill:black
+style Metrics fill:grey
+style TimeoutError fill:grey
+    
 ```
 
 ## Tech Stack
@@ -46,23 +119,14 @@ Result --> API --> User
 
 ### Prerequisites
 
-*   Java 17
+*   Java 17+
 *   Maven
 
-### Installation
+### Build from src
 
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/ronakgh97/webScraper.git
-    ```
-2.  Navigate to the project directory:
-    ```bash
-    cd webScraper
-    ```
-3.  Install the dependencies:
-    ```bash
-    mvn install
-    ```
+```bash
+mvn install
+```
 
 ### Running the Application
 
@@ -91,7 +155,7 @@ This endpoint allows you to initiate a web scrape.
 ```bash
 curl -X POST -H "Content-Type: application/json" -d '{
   "query": "what is the capital of france"
-}' http://localhost:8080/api/v1/search
+}' http://localhost:3000/api/v1/service/search
 ```
 
 **Example Response:**
