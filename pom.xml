@@ -225,7 +225,7 @@
                     <reuseForks>false</reuseForks>
                     <properties>
                         <configurationParameters>
-                            junit.jupiter.execution.parallel.enabled=false
+                            junit.jupiter.execution.parallel.enabled=true
                         </configurationParameters>
                     </properties>
                     <excludes>
