@@ -1,23 +1,23 @@
-package com.mcp.webScraper.entries;
+package com.mcp.webScraper.Entries;
 
-public class SearchResult {
+public class ScrapeResult {
 
     private boolean success;
 
-    private String source;
-
-    private String snippet;
+    private String url;
 
     private String content;
 
     private String error;
 
-    public SearchResult() {
+    public ScrapeResult() {
     }
 
-    public SearchResult(boolean success, String link, String snippet, String content, String error) {
-        this.source = link;
+    public ScrapeResult(boolean success, String content, String url, String error) {
+        this.success = success;
         this.content = content;
+        this.error = error;
+        this.url = url;
     }
 
     public boolean isSuccess() {
@@ -26,22 +26,6 @@ public class SearchResult {
 
     public void setSuccess(boolean success) {
         this.success = success;
-    }
-
-    public String getSource() {
-        return source;
-    }
-
-    public void setSource(String link) {
-        this.source = link;
-    }
-
-    public String getSnippet() {
-        return snippet;
-    }
-
-    public void setSnippet(String snippet) {
-        this.snippet = snippet;
     }
 
     public String getContent() {
@@ -60,14 +44,23 @@ public class SearchResult {
         this.error = error;
     }
 
+
+    public String getUrl() {
+        return url;
+    }
+
+    public void setUrl(String url) {
+        this.url = url;
+    }
+
     @Override
     public String toString() {
-        return "SearchResult{" +
+        return "ScrapeResult{" +
                 "success=" + success +
-                ", source=" + source +
-                ", snippet='" + snippet + '\'' +
+                ", url='" + url + '\'' +
+                ", error='" + error + '\'' +
                 ", content='" + (content != null ? content.substring(0, Math.min(100, content.length())) + "..." : null) + '\'' +
-                ", error='" + error +
                 '}';
     }
 }
+
