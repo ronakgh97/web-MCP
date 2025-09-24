@@ -1,10 +1,10 @@
-package com.mcp.webScraper.workers;
+package com.mcp.webScraper.Workers;
 
-import com.mcp.webScraper.entries.ScrapeResult;
+import com.mcp.webScraper.Entries.ScrapeResult;
 import com.microsoft.playwright.*;
+import com.microsoft.playwright.options.Geolocation;
 import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.WaitUntilState;
-import jakarta.annotation.PreDestroy;
 import org.apache.pdfbox.io.RandomAccessReadBuffer;
 import org.apache.pdfbox.pdfparser.PDFParser;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -21,9 +21,11 @@ import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.security.SecureRandom;
+import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static com.mcp.webScraper.workers.PlaywrightConfig.*;
+import static com.mcp.webScraper.Workers.PlaywrightConfig.*;
 
 /**
  * This service provides the functionality to scrape web pages using Playwright.
@@ -42,13 +44,14 @@ public class PlaywrightWebScraperTools {
     private volatile Browser browser;
     private final SecureRandom random = new SecureRandom();
     private final AtomicLong scrapeCount = new AtomicLong(0);
+    private AtomicBoolean isUse = new AtomicBoolean(false);
 
     /**
      * Constructor for the PlaywrightWebScraperTools.
      * Initializes the Playwright browser.
      */
     public PlaywrightWebScraperTools() {
-        logger.info("Initializing Playwright scraper tool...");
+        //logger.info("Initializing Playwright scraper tool...");
         initializeBrowser();
     }
 
@@ -56,15 +59,38 @@ public class PlaywrightWebScraperTools {
      * This method is called before the bean is destroyed.
      * It closes the Playwright browser and releases any resources.
      */
-    @PreDestroy
     public void cleanup() {
-        logger.info("Shutting down Playwright scraper tool");
+        //logger.info("Shutting down Playwright scraper tool");
         try {
             if (browser != null) browser.close();
             if (playwright != null) playwright.close();
         } catch (Exception e) {
             logger.error("Error during cleanup", e);
         }
+    }
+
+    public boolean isInUse() {
+        return this.isUse.get();
+    }
+
+    public void setInUse(boolean inUse) {
+        this.isUse.set(inUse);
+    }
+
+    /**
+     * Attempts to acquire the lock.
+     *
+     * @return {@code true} if the lock was acquired, {@code false} otherwise.
+     */
+    public boolean tryAcquire() {
+        return isUse.compareAndSet(false, true);
+    }
+
+    /**
+     * Releases the lock.
+     */
+    public void release() {
+        isUse.set(false);
     }
 
     /**
@@ -80,7 +106,7 @@ public class PlaywrightWebScraperTools {
         logger.debug("Starting scrape #{}: {}", scrapeId, url);
 
         if (!isValidUrl(url)) {
-            return new ScrapeResult(false, null, "Invalid URL", url);
+            return sendError(url, "Not a valid url!!");
         }
 
         // If the URL points to a PDF file, use the PDF extraction logic.
@@ -91,7 +117,7 @@ public class PlaywrightWebScraperTools {
                 return new ScrapeResult(true, pdfContent, null, url);
             } catch (Exception e) {
                 logger.error("PDF extraction failed for {}: {}", url, e.getMessage());
-                return new ScrapeResult(false, null, "PDF extraction failed: " + e.getMessage(), url);
+                return sendError(url, "PDF site extraction failed!!");
             }
         }
 
@@ -104,7 +130,7 @@ public class PlaywrightWebScraperTools {
 
         } catch (Exception e) {
             logger.error("Scrape #{} failed: {}", scrapeId, e.getMessage());
-            return new ScrapeResult(false, null, e.getMessage(), url);
+            return sendError(url, "Something went wrong");
         }
     }
 
@@ -124,8 +150,8 @@ public class PlaywrightWebScraperTools {
 
                 int status = response != null ? response.status() : 0;
                 if (response == null || !response.ok()) {
-                    logger.warn("Failed to load page: " + (response != null ? "HTTP " + status : "No response"));
-                    return new ScrapeResult(false, null, "Failed to load page: " + (response != null ? "HTTP " + status : "No response"), url);
+                    logger.warn("Failed to load page: {}", response != null ? "HTTP " + status : "No response");
+                    return sendError(url, "Failed to load page: " + status);
                 }
 
                 try {
@@ -135,12 +161,12 @@ public class PlaywrightWebScraperTools {
                 }
 
                 String content = extractContent(page);
-                return new ScrapeResult(true, content, null, url);
+                logger.debug("Scraped site successfully: {}", url);
+                return new ScrapeResult(true, content, url, null);
 
             } catch (Exception e) {
                 if (attempt == MAX_RETRIES) {
-                    return new ScrapeResult(false, null,
-                            "Failed after " + MAX_RETRIES + " attempts: " + e.getMessage(), url);
+                    return sendError(url, "Failed after " + MAX_RETRIES + " attempts");
                 }
 
                 long backoff = RETRY_DELAY_BASE_MS * attempt;
@@ -154,8 +180,7 @@ public class PlaywrightWebScraperTools {
                 }
             }
         }
-
-        return new ScrapeResult(false, null, "Unexpected end of retry loop", url);
+        return sendError(url, "Something went wrong");
     }
 
 
@@ -261,9 +286,9 @@ public class PlaywrightWebScraperTools {
                     .setHeadless(BROWSER_HEADLESS)
                     .setTimeout(DEFAULT_TIMEOUT_MS)
                     .setArgs(BROWSER_ARGS));
-            logger.info("Browser initialized successfully");
+            //logger.info("Browser initialized successfully");
         } catch (Exception e) {
-            logger.error("Browser initialization failed", e);
+            logger.error("Browser initialization failed", e.getMessage());
         }
     }
 
@@ -272,9 +297,20 @@ public class PlaywrightWebScraperTools {
      * It sets a random user agent and other browser options to avoid being detected as a bot.
      */
     private BrowserContext createContext() {
+        LocationProfile profile = RESIDENTIAL_PROFILES.get(random.nextInt(RESIDENTIAL_PROFILES.size()));
+
+        double latVariation = (random.nextDouble() - 0.5) * 0.02; // ~1km variation
+        double lonVariation = (random.nextDouble() - 0.5) * 0.02;
+
         return browser.newContext(new Browser.NewContextOptions()
                 .setUserAgent(getRandomUserAgent())
+                .setGeolocation(new Geolocation(
+                        profile.getLat() + latVariation,
+                        profile.getLon() + lonVariation))
+                .setPermissions(Arrays.asList("geolocation"))
                 .setViewportSize(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+                .setTimezoneId(profile.getTimezone())
+                .setLocale(profile.getLocale())
                 .setBypassCSP(true)
                 .setIgnoreHTTPSErrors(true)
                 .setJavaScriptEnabled(true)
@@ -287,6 +323,7 @@ public class PlaywrightWebScraperTools {
      */
     private void setupPage(Page page) {
         page.addInitScript(STEALTH_SCRIPT);
+        //page.route("**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,otf}", Route::abort);
         page.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
     }
 
@@ -294,6 +331,15 @@ public class PlaywrightWebScraperTools {
      * This method returns a random user agent from a list of user agents.
      */
     private String getRandomUserAgent() {
-        return USER_AGENTS.get(random.nextInt(USER_AGENTS.size()));
+        String user = USER_AGENTS.get(random.nextInt(USER_AGENTS.size()));
+        logger.debug("User_Agent: {}", user);
+        return user;
+    }
+
+    /**
+     * This method returns a null objects with error message.
+     */
+    private ScrapeResult sendError(String url, String errorMessage) {
+        return new ScrapeResult(false, null, url, errorMessage);
     }
 }
