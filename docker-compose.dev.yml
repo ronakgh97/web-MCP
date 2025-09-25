@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  webscraper:
+    build: .
+    container_name: simpl-webscraper
+    ports:
+      - "3000:3000"
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - playwright.instances=20
+      - JAVA_OPTS=-Xmx2g -Xms1g -XX:+UseG1GC
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:3000/api/v1/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 2G

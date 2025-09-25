@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+.dockerignore
+Dockerfile
+docker-compose.dev.yml
+docker-compose.prod.yaml
+
+# Maven build output
+target/
+
+# IDE configuration
+.idea/
+*.iml
+
+# Log files
+*.log
+test_logs/
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Maven wrapper
+.mvn/wrapper/maven-wrapper.jar
