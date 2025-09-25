@@ -1,6 +1,9 @@
 # MCP Web Scraper
 
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.5-brightgreen.svg)](https://spring.io/projects/spring-boot)
+[![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://www.docker.com/)
+![bash](https://img.shields.io/badge/shell-bash-blue?logo=gnu-bash)
+
 
 The MCP Web Scraper is a ***simple and scalable*** web scraping tool built with Spring Boot. It's designed to be a core component of the MCP (Master Control Program) ecosystem, providing reliable and efficient web scraping capabilities for various AI-driven tasks.
 
@@ -51,13 +54,13 @@ style P5 fill:black
 style Result fill:grey
 
 ```
+`Pseudo code `
 
-`Code Flow`
-
-```text
-PlaywrightBrowserSearchTools instance = allocator.getSearchInstance(requestId);
-List<SearchResult> results = instance.performSearch(query);
- No cleanup needed - fire and forget! 
+```java
+public PlaywrightBrowserSearchTools getSearchInstance(int requestId) {
+    int index = Math.abs(requestId % instances);
+    return searchTools[index]; // allocate a browser to req directly,prone to conflict
+}
 ```
 
 ## ***Improved Design***
@@ -87,8 +90,8 @@ Work2 --> Release2[Release Instance #2<br/>Return to Pool]
 Work3 --> Release3[Release Instance #3<br/>Return to Pool]
     
 Release1 --> Metrics[Usage Metrics<br/>Tracking & Monitoring]
-Release2 --> Metrics
-Release3 --> Metrics
+Release2 --> Metrics[Usage Metrics<br/>Tracking & Monitoring]
+Release3 --> Metrics[Usage Metrics<br/>Tracking & Monitoring]
     
 Metrics --> Result[Response with Stats]
 Result --> API --> User
@@ -105,13 +108,23 @@ style Metrics fill:grey
 style TimeoutError fill:grey
     
 ```
+`Pseudo code `
+
+```java
+public PlaywrightBrowserSearchTools borrowSearchInstance(int requestId) {
+    // checks if available or busy, conflict-proof
+    if (searchSemaphore.tryAcquire(60, TimeUnit.SECONDS)) return findAndLockAvailableInstance(requestId);
+    return null; // timeout
+}
+```
+
 
 ## Tech Stack
 
 *   **Backend:** Spring Boot 3.5.5
 *   **Language:** Java 17
 *   **Web Scraping:** Playwright
-*   **Search Engine:** DuckDuckGo
+*   **Search Engine:** DuckDuckGo (Reliable)
 *   **Build Tool:** Maven
 *   **Cloud Service:** Oracle Cloud (Ubuntu Environment)
 
@@ -125,28 +138,68 @@ style TimeoutError fill:grey
 ### Build from src
 
 ```bash
-mvn install
+mvn clean install -DskipTests -U
 ```
-
-### Running the Application
 
 ```bash
 mvn spring-boot:run
 ```
 
-The application will be available at `http://localhost:3000`.
+### Docker (Minimum 12GB+ RAM ~ 20 workers)
+
+```bash
+docker-compose -f docker-compose.dev.yaml up --build
+```
+```bash
+docker-compose -f docker-compose.prod.yaml up --build
+```
+
+#### Build image manually
+
+```bash
+docker build -t simpl-webscraper:latest .
+```
+
+`Run development container`
+
+```bash
+docker run -d \
+--name webscraper-dev \
+-p 3000:3000 \
+-e SPRING_PROFILES_ACTIVE=dev \
+-e playwright.instances=15 \
+-v $(pwd)/logs:/app/logs \
+--init --ipc=host \
+simpl-webscraper:latest
+````
+
+`Run production container`
+
+```bash
+docker run -d \
+--name webscraper-prod \
+-p 3001:3000 \
+-e SPRING_PROFILES_ACTIVE=prod \
+-e playwright.lockInstances=20 \
+-v $(pwd)/logs:/app/logs \
+--init --ipc=host \
+simpl-webscraper:latest
+````
+
+The application (default) will be available at `http://localhost:3000`.
 
 ## API Endpoint
 
 ### `POST /api/v1/search`
 
-This endpoint allows you to initiate a web scrape.
+This endpoint allows you to initiate a web data scrape, with ***source, snippet and contents***.
 
 **Request Body:**
 
 ```json
 {
-  "query": "hamster foods"
+  "query": "hamster foods",
+  "results": 3
 }
 ```
 
@@ -154,7 +207,8 @@ This endpoint allows you to initiate a web scrape.
 
 ```bash
 curl -X POST -H "Content-Type: application/json" -d '{
-  "query": "what is the capital of france"
+  "query": "what are mcp server?"
+  "results": 5
 }' http://localhost:3000/api/v1/service/search
 ```
 
