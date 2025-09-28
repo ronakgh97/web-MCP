@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -106,7 +107,13 @@ public class ScrapeServices {
         return errorResult;
     }
 
+    @Profile("prod")
     public boolean isServiceHealthy() {
+        return playwrightAllocator != null && playwrightAllocator.isInitialized();
+    }
+
+    @Profile("dev")
+    public boolean isServiceHealthy_dev() {
         return playwrightAllocatorWithoutLock != null && playwrightAllocatorWithoutLock.isInitialized();
     }
 }
