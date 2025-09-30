@@ -1,25 +1,32 @@
 package com.mcp.webScraper.Workers;
 
+import org.springframework.context.annotation.DependsOn;
+import org.springframework.stereotype.Service;
+
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
+@Service
+@DependsOn({"proxyService_withPearl"})
 public class PlaywrightConfig {
 
+
     // BROWSER CONFIG
-    public static final int VIEWPORT_WIDTH = 1920;
-    public static final int VIEWPORT_HEIGHT = 1080;
+    public static final int VIEWPORT_WIDTH = 1280;
+    public static final int VIEWPORT_HEIGHT = 720;
     public static final boolean BROWSER_HEADLESS = true;
 
+
     // TIMEOUTS
-    public static final int DEFAULT_TIMEOUT_MS = 15000;
-    public static final int NAVIGATION_TIMEOUT_MS = 12000;
+    public static final int DEFAULT_TIMEOUT_MS = 18000;
+    public static final int NAVIGATION_TIMEOUT_MS = 20000;
     public static final int SELECTOR_WAIT_TIMEOUT_MS = 8000;
     public static final int ELEMENT_INTERACTION_TIMEOUT_MS = 5000;
-    public static final int NETWORK_IDLE_TIMEOUT_MS = 10000;
-    public static final int RETRY_DELAY_BASE_MS = 2000;
+    public static final int NETWORK_IDLE_TIMEOUT_MS = 12000;
     public static final int WAIT_TIMEOUT_MS = 3000;
-    public static final int MAX_RETRIES = 2;
+    public static final int MAX_RETRIES = 1;
+
 
     // NETWORK RESILIENCE
     public static final int NETWORK_RETRY_ATTEMPTS = 3;
@@ -49,6 +56,15 @@ public class PlaywrightConfig {
 
     // User Agents Pool
     public static final List<String> USER_AGENTS = List.of(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:122.0) Gecko/20100101 Firefox/122.0"
+    );
+
+            /*
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.101 Safari/537.36",
@@ -59,10 +75,10 @@ public class PlaywrightConfig {
             "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0",
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36 Edg/118.0.2088.76"
-    );
+            */
 
     // HEADERS
-    static final Map<String, String> DEFAULT_HEADERS = Map.of(
+    public static final Map<String, String> DEFAULT_HEADERS = Map.of(
             "Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             "Accept-Language", "en-US,en;q=0.9",
             "Accept-Encoding", "gzip, deflate, br",
@@ -73,7 +89,8 @@ public class PlaywrightConfig {
             "Pragma", "no-cache"
     );
 
-    static final List<LocationProfile> RESIDENTIAL_PROFILES = Arrays.asList(
+    // Residential location profiles
+    public static final List<LocationProfile> RESIDENTIAL_PROFILES = Arrays.asList(
             new LocationProfile("America/New_York", 40.7128, -74.0060, "en-US", "New York, NY"),
             new LocationProfile("America/Los_Angeles", 34.0522, -118.2437, "en-US", "Los Angeles, CA"),
             new LocationProfile("America/Chicago", 41.8781, -87.6298, "en-US", "Chicago, IL"),
@@ -138,9 +155,10 @@ public class PlaywrightConfig {
             "--disable-accelerated-video-decode"                  // Consistent video
     );
 
+    // Stealth script to evade detection
     public static final String STEALTH_SCRIPT = """
             () => {
-                // === CORE AUTOMATION HIDING ===
+                // CORE AUTOMATION HIDING
             
                 // Remove webdriver property completely
                 Object.defineProperty(navigator, 'webdriver', {
@@ -154,7 +172,7 @@ public class PlaywrightConfig {
                 delete navigator.__proto__.webdriver;
                 delete navigator.webdriver;
             
-                // === CHROME OBJECT MOCKING ===
+                // CHROME OBJECT MOCKING
             
                 // Comprehensive chrome object with randomized data
                 const chromeVersion = `${Math.floor(Math.random() * 10) + 90}.0.${Math.floor(Math.random() * 5000)}.${Math.floor(Math.random() * 200)}`;
@@ -207,7 +225,7 @@ public class PlaywrightConfig {
                     })
                 };
             
-                // === PLUGIN SYSTEM MOCKING ===
+                // PLUGIN SYSTEM MOCKING
             
                 // Realistic plugin array with slight randomization
                 const pluginVariations = [
@@ -251,7 +269,7 @@ public class PlaywrightConfig {
                     configurable: true
                 });
             
-                // === LANGUAGE & LOCALE MOCKING ===
+                // LANGUAGE & LOCALE MOCKING
             
                 const languageSets = [
                     ['en-US', 'en'],
@@ -273,7 +291,7 @@ public class PlaywrightConfig {
                     configurable: true
                 });
             
-                // === PERMISSIONS API MOCKING ===
+                // PERMISSIONS API MOCKING
             
                 if (navigator.permissions && navigator.permissions.query) {
                     const originalQuery = navigator.permissions.query;
@@ -288,7 +306,7 @@ public class PlaywrightConfig {
                     };
                 }
             
-                // === WEBRTC IP LEAK PROTECTION ===
+                // WEBRTC IP LEAK PROTECTION 
             
                 if (window.RTCPeerConnection) {
                     const getOrig = RTCPeerConnection.prototype.getStats;
@@ -309,7 +327,7 @@ public class PlaywrightConfig {
                     };
                 }
             
-                // === CANVAS FINGERPRINTING PROTECTION ===
+                // CANVAS FINGERPRINTING PROTECTION
             
                 const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
                 HTMLCanvasElement.prototype.toDataURL = function(...args) {
@@ -331,7 +349,7 @@ public class PlaywrightConfig {
                     return originalToDataURL.apply(this, args);
                 };
             
-                // === WEBGL FINGERPRINTING PROTECTION ===
+                // WEBGL FINGERPRINTING PROTECTION
             
                 // Randomized GPU signatures
                 const gpuSignatures = [
@@ -373,7 +391,7 @@ public class PlaywrightConfig {
                     };
                 }
             
-                // === FONT DETECTION PROTECTION ===
+                // FONT DETECTION PROTECTION
             
                 const originalMeasureText = CanvasRenderingContext2D.prototype.measureText;
                 CanvasRenderingContext2D.prototype.measureText = function(text) {
@@ -385,7 +403,7 @@ public class PlaywrightConfig {
                     return result;
                 };
             
-                // === AUDIO CONTEXT FINGERPRINTING PROTECTION ===
+                // AUDIO CONTEXT FINGERPRINTING PROTECTION
             
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
                 if (AudioContext) {
@@ -408,7 +426,7 @@ public class PlaywrightConfig {
                     };
                 }
             
-                // === SCREEN FINGERPRINTING PROTECTION ===
+                // SCREEN FINGERPRINTING PROTECTION
             
                 // More realistic screen variations
                 const screenProps = ['width', 'height', 'availWidth', 'availHeight'];
@@ -425,7 +443,7 @@ public class PlaywrightConfig {
                     });
                 });
             
-                // === TIMEZONE SPOOFING ===
+                // TIMEZONE SPOOFING
             
                 // Randomized common timezones
                 const timezones = [
@@ -445,7 +463,7 @@ public class PlaywrightConfig {
                     return selectedTimezone;
                 };
             
-                // === BATTERY API BLOCKING ===
+                // BATTERY API BLOCKING
             
                 if ('getBattery' in navigator) {
                     navigator.getBattery = () => Promise.resolve({
@@ -458,7 +476,7 @@ public class PlaywrightConfig {
                     });
                 }
             
-                // === MEMORY INFO SPOOFING ===
+                // MEMORY INFO SPOOFING
             
                 if ('memory' in performance) {
                     Object.defineProperty(performance, 'memory', {
@@ -470,7 +488,7 @@ public class PlaywrightConfig {
                     });
                 }
             
-                // === HARDWARE CONCURRENCY SPOOFING ===
+                // HARDWARE CONCURRENCY SPOOFING
             
                 // More realistic CPU core distribution
                 const coreOptions = [2, 4, 6, 8, 12, 16];
@@ -491,7 +509,7 @@ public class PlaywrightConfig {
                     configurable: true
                 });
             
-                // === CONNECTION INFO SPOOFING ===
+                // CONNECTION INFO SPOOFING
             
                 if ('connection' in navigator) {
                     const connectionTypes = ['4g', '3g', 'wifi', 'ethernet'];
@@ -508,7 +526,7 @@ public class PlaywrightConfig {
                     });
                 }
             
-                // === DEVICE MEMORY SPOOFING ===
+                // DEVICE MEMORY SPOOFING
             
                 if ('deviceMemory' in navigator) {
                     const memoryOptions = [2, 4, 8, 16, 32];
@@ -530,7 +548,7 @@ public class PlaywrightConfig {
                     });
                 }
             
-                // === USER AGENT CONSISTENCY ===
+                // USER AGENT CONSISTENCY
             
                 // Match platform to user agent
                 const platformVariations = ['Win32', 'MacIntel', 'Linux x86_64'];
@@ -553,7 +571,7 @@ public class PlaywrightConfig {
                     configurable: true
                 });
             
-                // === AUTOMATION DETECTION CLEANUP ===
+                // AUTOMATION DETECTION CLEANUP
             
                 const automationProps = [
                     'callPhantom', '_phantom', '__selenium_evaluate', '__webdriver_evaluate',
@@ -609,7 +627,7 @@ public class PlaywrightConfig {
                 // Single interval setup
                 setInterval(simulateMouseActivity, 5000 + Math.random() * 3000);
             
-                // === ENHANCED FETCH OVERRIDE ===
+                // ENHANCED FETCH OVERRIDE 
             
                 const originalFetch = window.fetch;
                 window.fetch = function(...args) {
@@ -628,7 +646,7 @@ public class PlaywrightConfig {
                     });
                 };
             
-                // === WINDOW FOCUS SIMULATION ===
+                // WINDOW FOCUS SIMULATION 
             
                 let focused = true;
                 setInterval(() => {
@@ -702,6 +720,7 @@ public class PlaywrightConfig {
             return city;
         }
     }
+
 
     public PlaywrightConfig() {
     }
