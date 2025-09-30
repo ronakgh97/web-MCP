@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -euo pipefail
+#set -euo pipefail
 
 # Colors
 readonly RED='\033[0;31m'
@@ -17,16 +17,16 @@ TIMEOUT=30
 VERBOSE=false
 
 readonly QUERY_POOL=(
-  "spring boot microservices"
-  "springAI documentation"
-  "what is mcp server protocol?"
-  "playwright automation"
-  "ai-agents framework"
-  "java spring security"
-  "docker containerization"
-  "kubernetes orchestration"
-  "web scraping best practices"
-  "RESTful API design"
+    "spring boot microservices"
+    "springAI documentation"
+    "what is mcp server protocol?"
+    "playwright automation"
+    "ai-agents framework"
+    "java spring security"
+    "docker containerization"
+    "kubernetes orchestration"
+    "web scraping best practices"
+    "RESTful API design"
 )
 
 # Function to print colored output
@@ -40,7 +40,7 @@ print_color() {
 usage() {
     cat << EOF
 Usage: $0 [OPTIONS]
-Load testing script for Web Scraper API
+Load testing script for API
 
 OPTIONS:
     -n NUM      Number of concurrent requests (default: 10)
@@ -51,9 +51,9 @@ OPTIONS:
     -h          Show this help message
 
 EXAMPLES:
-    $0 -n 20 -v                    # 20 concurrent requests with verbose output
-    $0 -n 50 -u http://prod-server:8080   # 50 requests to production server
-    $0 -n 5 -r 1 -t 10             # Light test with 5 requests, 1 result each
+    $0 -n 20 -v                           # 20 concurrent requests with verbose output
+    $0 -n 50 -u https://prod-server:8080   # 50 requests to production server
+    $0 -n 5 -r 1 -t 10                    # Light test with 5 requests, 1 result each
 
 EOF
     exit 1
@@ -84,11 +84,11 @@ if ! [[ "$RESULTS" =~ ^[0-9]+$ ]] || [ "$RESULTS" -lt 1 ]; then
 fi
 
 # Create results directory
-RESULTS_DIR="load_test_results_$(date +%Y%m%d_%H%M%S)"
+RESULTS_DIR="test_logs/load_test_results_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$RESULTS_DIR"
 
 print_color "$BLUE" "Load Testing"
-print_color "$BLUE" "=============================="
+print_color "$BLUE" "==============================="
 print_color "$YELLOW" "Target URL: $URL"
 print_color "$YELLOW" "Concurrent Requests: $CONCURRENT_REQUESTS"
 print_color "$YELLOW" "Results per Query: $RESULTS"
@@ -97,8 +97,8 @@ print_color "$YELLOW" "Results Directory: $RESULTS_DIR"
 echo
 
 # Pre-flight health check
-print_color "$BLUE" "🔍 Pre-flight health check..."
-if curl -s -m 5 "${URL%/search}/health" > /dev/null 2>&1; then
+print_color "$BLUE" "Pre-flight health check..."
+if curl -s -m 5 "$URL/api/v1/service/health" > /dev/null 2>&1; then
     print_color "$GREEN" "Service is healthy and reachable"
 else
     print_color "$RED" "Service health check failed"
@@ -129,7 +129,7 @@ EOF
     local timing_file="$RESULTS_DIR/request_${request_id}_timing.txt"
 
     if [ "$VERBOSE" = true ]; then
-        print_color "$YELLOW" "Request #$request_id: '$selected_query'"
+        print_color "$YELLOW" "📤 Request #$request_id: '$selected_query'"
     fi
 
     # Capture timing and response
@@ -142,7 +142,13 @@ EOF
         -o "$output_file" 2>/dev/null || echo "000")
     local end_req=$(date +%s.%N)
 
-    local duration=$(echo "$end_req - $start_req" | bc -l)
+    # Safe calculation (handle empty values)
+    local duration
+    if command -v bc >/dev/null 2>&1; then
+        duration=$(echo "$end_req - $start_req" | bc -l 2>/dev/null || echo "0")
+    else
+        duration=$((end_req - start_req))
+    fi
 
     # Log timing information
     echo "request_id=$request_id,query='$selected_query',http_code=$http_code,duration=${duration}s" > "$timing_file"
@@ -173,7 +179,7 @@ end_time=$(date +%s)
 total_duration=$((end_time - start_time))
 
 echo
-print_color "$BLUE" "📊 Load Test Results"
+print_color "$BLUE" "Load Test Results"
 print_color "$BLUE" "==================="
 
 # Analyze results
@@ -191,16 +197,41 @@ for i in $(seq 1 "$CONCURRENT_REQUESTS"); do
         fi
 
         if [ -f "$RESULTS_DIR/request_${i}_timing.txt" ]; then
-            duration=$(grep -o 'duration=[0-9.]*' "$RESULTS_DIR/request_${i}_timing.txt" | cut -d= -f2 | sed 's/s$//')
-            total_response_time=$(echo "$total_response_time + $duration" | bc -l)
+            duration=$(grep -o 'duration=[0-9.]*' "$RESULTS_DIR/request_${i}_timing.txt" | cut -d= -f2 | sed 's/s$//' || echo "0")
+            if command -v bc >/dev/null 2>&1 && [ -n "$duration" ]; then
+                total_response_time=$(echo "$total_response_time + $duration" | bc -l 2>/dev/null || echo "$total_response_time")
+            fi
         fi
     fi
 done
 
-success_rate=$(echo "scale=2; $successful_requests * 100 / $CONCURRENT_REQUESTS" | bc -l)
-avg_response_time=$(echo "scale=3; $total_response_time / $CONCURRENT_REQUESTS" | bc -l)
-requests_per_second=$(echo "scale=2; $CONCURRENT_REQUESTS / $total_duration" | bc -l)
+# Calculations with bc
+safe_calculate() {
+    local expression="$1"
+    if command -v bc >/dev/null 2>&1; then
+        result=$(echo "$expression" | bc -l 2>/dev/null || echo "0")
+        echo "$result"
+    else
+        echo "0"
+    fi
+}
 
+# Calculate metrics safely
+if [ "$CONCURRENT_REQUESTS" -gt 0 ]; then
+    success_rate=$(safe_calculate "scale=2; $successful_requests * 100 / $CONCURRENT_REQUESTS")
+    avg_response_time=$(safe_calculate "scale=3; $total_response_time / $CONCURRENT_REQUESTS")
+else
+    success_rate="0"
+    avg_response_time="0"
+fi
+
+if [ "$total_duration" -gt 0 ]; then
+    requests_per_second=$(safe_calculate "scale=2; $CONCURRENT_REQUESTS / $total_duration")
+else
+    requests_per_second="0"
+fi
+
+# Display results
 print_color "$GREEN" "Successful Requests: $successful_requests"
 print_color "$RED" "Failed Requests: $failed_requests"
 print_color "$YELLOW" "Success Rate: ${success_rate}%"
@@ -229,27 +260,30 @@ Total Test Duration: ${total_duration}s
 
 Individual Request Timings:
 ---------------------------
-$(cat "$RESULTS_DIR"/request_*_timing.txt)
+$(cat "$RESULTS_DIR"/request_*_timing.txt 2>/dev/null || echo "No timing data available")
 EOF
 
-print_color "$BLUE" "Results saved to: $RESULTS_DIR/"
-print_color "$BLUE" "Summary report: $RESULTS_DIR/summary_report.txt"
+print_color "$BLUE" "📁 Results saved to: $RESULTS_DIR/"
+print_color "$BLUE" "📄 Summary report: $RESULTS_DIR/summary_report.txt"
 
 # Performance assessment
-if (( $(echo "$success_rate >= 95" | bc -l) )); then
+success_rate_num=$(echo "$success_rate" | cut -d. -f1)
+avg_time_num=$(echo "$avg_response_time" | cut -d. -f1)
+
+if [ "$success_rate_num" -ge 95 ]; then
     print_color "$GREEN" "Success rate above 95%"
-elif (( $(echo "$success_rate >= 80" | bc -l) )); then
+elif [ "$success_rate_num" -ge 80 ]; then
     print_color "$YELLOW" "Success rate above 80%"
 else
     print_color "$RED" "Success rate below 80%"
 fi
 
-if (( $(echo "$avg_response_time <= 5" | bc -l) )); then
-    print_color "$GREEN" "Average response time under 5s"
-elif (( $(echo "$avg_response_time <= 10" | bc -l) )); then
-    print_color "$YELLOW" "Average response time 5-10s"
+if [ "$avg_time_num" -le 5 ]; then
+    print_color "$GREEN" "FAST: Average response time under 5s"
+elif [ "$avg_time_num" -le 10 ]; then
+    print_color "$YELLOW" "MODERATE: Average response time 5-10s"
 else
-    print_color "$RED" "Average response time over 10s"
+    print_color "$RED" "SLOW: Average response time over 10s"
 fi
 
 echo
