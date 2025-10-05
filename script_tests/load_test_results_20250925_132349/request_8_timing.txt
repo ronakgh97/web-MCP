@@ -1,1 +1,0 @@
-request_id=8,query='RESTful API design',http_code=200,duration=20.154752778s

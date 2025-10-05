@@ -1,1 +1,0 @@
-request_id=10,query='springAI documentation',http_code=404,duration=.036508317s
