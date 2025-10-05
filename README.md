@@ -1,11 +1,11 @@
-# MCP Web Scraper
+# Web MCP
 
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.5-brightgreen.svg)](https://spring.io/projects/spring-boot)
-[![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://www.docker.com/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.5-orange.svg)](https://spring.io/projects/spring-boot)
+[![Docker](https://img.shields.io/badge/Docker-NotReady-blue.svg)](https://www.docker.com/)
 ![bash](https://img.shields.io/badge/shell-bash-blue?logo=gnu-bash)
+![Perl](https://img.shields.io/badge/perl-5.32-violet?logo=perl)
 
-
-The MCP Web Scraper is a ***simple and scalable*** web scraping tool built with Spring Boot. It's designed to be a core component of the MCP (Master Control Program) ecosystem, providing reliable and efficient web scraping capabilities for various AI-driven tasks.
+The MCP Web Scraper is a ***simple and scalable*** web tool built with Spring Boot. It's designed to be a core component of the MCP (Master Control Program) ecosystem, providing reliable and efficient web scraping capabilities for various AI-driven tasks.
 
 This tool leverages Playwright for robust browser automation, allowing it to handle modern, JavaScript-heavy websites with ease. It exposes a simple REST API for initiating web scrapes, making it easy to integrate with other services.
 
