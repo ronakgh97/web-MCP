@@ -1,4 +1,4 @@
-package com.mcp.webScraper.Entries;
+package com.mcp.webScraper.entity;
 
 public class ScrapeResult {
 

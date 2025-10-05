@@ -1,4 +1,4 @@
-package com.mcp.webScraper.Dtos;
+package com.mcp.webScraper.dto;
 
 public class Query {
 
