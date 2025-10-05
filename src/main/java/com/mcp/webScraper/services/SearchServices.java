@@ -1,6 +1,6 @@
 package com.mcp.webScraper.Services;
 
-import com.mcp.webScraper.Entries.SearchResult;
+import com.mcp.webScraper.entity.SearchResult;
 import com.mcp.webScraper.Workers.PlaywrightAllocator;
 import com.mcp.webScraper.Workers.PlaywrightAllocator_withoutLock;
 import com.mcp.webScraper.Workers.PlaywrightBrowserSearchTools;
