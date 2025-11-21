@@ -1,9 +1,7 @@
-version: '3.8'
-
 services:
   webscraper:
     build: .
-    container_name: simpl-webscraper
+    container_name: WebMCP_dev
     ports:
       - "3000:3000"
     environment:
@@ -12,6 +10,7 @@ services:
       - JAVA_OPTS=-Xmx2g -Xms1g -XX:+UseG1GC
     volumes:
       - ./logs:/app/logs
+      - ./proxies.txt:/app/proxies.txt
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:3000/api/v1/health" ]

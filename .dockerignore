@@ -6,7 +6,7 @@
 # Docker
 .dockerignore
 Dockerfile
-docker-compose.dev.yml
+docker-compose.dev.yaml
 docker-compose.prod.yaml
 
 # Maven build output
