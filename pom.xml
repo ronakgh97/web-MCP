@@ -28,7 +28,7 @@
     </scm>
 
     <properties>
-        <java.version>17</java.version>
+        <java.version>24</java.version>
         <spring-ai.version>1.0.0</spring-ai.version>
         <jjwt.version>0.12.6</jjwt.version>
         <selenium.version>4.35.0</selenium.version>
@@ -72,8 +72,6 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
-        <!-- Database -->
-
 
         <!-- Spring AI Framework -->
         <dependency>
