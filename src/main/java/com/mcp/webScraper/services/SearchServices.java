@@ -1,9 +1,9 @@
 package com.mcp.webScraper.Services;
 
-import com.mcp.webScraper.entity.SearchResult;
 import com.mcp.webScraper.Workers.PlaywrightAllocator;
 import com.mcp.webScraper.Workers.PlaywrightAllocator_withoutLock;
 import com.mcp.webScraper.Workers.PlaywrightBrowserSearchTools;
+import com.mcp.webScraper.entity.SearchResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;

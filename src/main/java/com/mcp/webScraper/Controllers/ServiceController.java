@@ -1,11 +1,11 @@
 package com.mcp.webScraper.Controllers;
 
+import com.mcp.webScraper.Services.ScrapeServices;
+import com.mcp.webScraper.Services.SearchServices;
 import com.mcp.webScraper.entity.RequestEntries;
 import com.mcp.webScraper.entity.ResponseEntries;
 import com.mcp.webScraper.entity.ScrapeResult;
 import com.mcp.webScraper.entity.SearchResult;
-import com.mcp.webScraper.Services.ScrapeServices;
-import com.mcp.webScraper.Services.SearchServices;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
