@@ -95,7 +95,7 @@ class Tests {
     @Test
     @Order(2)
     void testSearch_TechQuery() throws Exception {
-        RequestEntries request = new RequestEntries("OpenAI GPT-5 API", 2);
+        RequestEntries request = new RequestEntries("New AI models in the market", 2);
         String requestJson = objectMapper.writeValueAsString(request);
 
         MvcResult results = mockMvc.perform(post("/api/v1/service/search")
