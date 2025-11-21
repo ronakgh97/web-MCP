@@ -1,24 +1,21 @@
 # Web MCP
 
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.5-orange.svg)](https://spring.io/projects/spring-boot)
-[![Docker](https://img.shields.io/badge/Docker-NotReady-blue.svg)](https://www.docker.com/)
-![bash](https://img.shields.io/badge/shell-bash-blue?logo=gnu-bash)
 ![Perl](https://img.shields.io/badge/perl-5.32-violet?logo=perl)
 
-The MCP Web Scraper is a ***simple and scalable*** web tool built with Spring Boot, providing reliable and efficient web data extracting and structuring capabilities for various AI-driven tasks.
+The MCP Web Scraper is a **_simple and scalable_** web tool built with Spring Boot, providing reliable and efficient web data extracting and structuring capabilities for various AI-driven tasks.
 
-This tool uses Playwright for browser automation, allowing it to handle modern, JavaScript-heavy websites with ease. It exposes a simple REST API for initiating web scrapes, making it easy to integrate with other services.
+This tool uses Playwright for browser automation, allowing it to handle modern, JavaScript-heavy websites with ease. It exposes a simple REST API for initiating web scrapes, making it easy to integrate with other services, such CLI Agents, Chatbot service etc.
 
 ## Features
 
-*   **Simple Web Scraping:** Uses `Playwright` to render and scrape modern web pages.
-*   **Simple Search Integration:** Searches `DuckDuckGo` to find relevant pages before scraping.
-*   **RestFul API:** Provides a simple API for initiating scrapes.
-*   **Scalable Architecture:** Utilizes multiple Playwright instances and `hash routing` to handle `concurrent requests` safely. (Will replace this with ```ThreadPool``` and ```ExecutorService```)
-*   **AI:** To be integrated with AI models for `structured data extraction` and analysis. (***TODO***)
+- **Simple Web Scraping:** Uses `Playwright` to render and scrape modern web pages.
+- **Simple Search Integration:** Searches `DuckDuckGo` to find relevant pages before scraping.
+- **RestFul API:** Provides a simple API for initiating scrapes.
+- **Scalable Architecture:** Utilizes multiple Playwright instances and `hash routing` to handle `concurrent requests` safely. (Will replace this with `ThreadPool` and `ExecutorService`)
+- **AI:** To be integrated with AI models for `structured data extraction` and analysis. (**_TODO_**)
 
-
-## ***Simple Design (dev)***
+## **_Simple Design (dev)_**
 
 ```mermaid
 flowchart TD
@@ -54,16 +51,17 @@ style P5 fill:black
 style Result fill:grey
 
 ```
+
 `Pseudo code `
 
 ```java
 public PlaywrightBrowserSearchTools getSearchInstance(int requestId) {
     int index = Math.abs(requestId % instances);
-    return searchTools[index]; // allocate a browser to req directly,prone to conflict
+    return searchTools[index]; // allocate a browser to req directly, prone to conflict
 }
 ```
 
-## ***Improved Design***
+## **_Improved Design_**
 
 ```mermaid
 flowchart TD
@@ -74,31 +72,31 @@ UID --> Allocator[PlaywrightAllocator<br/>Resource Manager]
 Allocator --> Semaphore{Semaphore Gate<br/>Max nth Concurrent}
 Semaphore -->|Wait in Queue| Queue[Request Queue<br/>60s Timeout]
 Semaphore -->|Available Slot| Available[Slot Available]
-    
+
 Available --> InstancePool[Instance Pool<br/>nth Browser Instances]
-    
+
 InstancePool --> Lock1{Instance #1<br/>Available?}
 InstancePool --> Lock2{Instance #2<br/>Available?}
 InstancePool --> Lock3{Instance #3<br/>Available?}
-    
+
 Lock1 -->|Acquired| Work1[Perform Search<br/>& Scraping]
-Lock2 -->|Acquired| Work2[Perform Search<br/>& Scraping] 
+Lock2 -->|Acquired| Work2[Perform Search<br/>& Scraping]
 Lock3 -->|Acquired| Work3[Perform Search<br/>& Scraping]
-    
+
 Work1 --> Release1[Release Instance #1<br/>Return to Pool]
 Work2 --> Release2[Release Instance #2<br/>Return to Pool]
 Work3 --> Release3[Release Instance #3<br/>Return to Pool]
-    
+
 Release1 --> Metrics[Usage Metrics<br/>Tracking & Monitoring]
 Release2 --> Metrics[Usage Metrics<br/>Tracking & Monitoring]
 Release3 --> Metrics[Usage Metrics<br/>Tracking & Monitoring]
-    
+
 Metrics --> Result[Response with Stats]
 Result --> API --> User
-    
+
 Queue -->|Timeout| TimeoutError[Request Timeout<br/>503 Service Unavailable]
 TimeoutError --> API
-    
+
 style User fill:black
 style API fill:grey
 style Semaphore fill:black
@@ -106,8 +104,9 @@ style Queue fill:grey
 style InstancePool fill:black
 style Metrics fill:grey
 style TimeoutError fill:grey
-    
+
 ```
+
 `Pseudo code `
 
 ```java
@@ -118,27 +117,26 @@ public PlaywrightBrowserSearchTools borrowSearchInstance(int requestId) {
 }
 ```
 
-
 ## Tech Stack
 
-*   **Backend:** Spring Boot 3.5.5
-*   **Language:** Java 17
-*   **Web Scraping:** Playwright
-*   **Search Engine:** DuckDuckGo (Reliable)
-*   **Build Tool:** Maven
-*   **Cloud Service:** Oracle Cloud (Ubuntu Environment)
+- **Backend:** Spring Boot 3.5.5
+- **Language:** Java 24
+- **Web Scraping:** Playwright
+- **Search Engine:** DuckDuckGo (Reliable)
+- **Build Tool:** Maven
+- **Cloud Service:** Oracle Cloud (Ubuntu Environment)
 
-## Getting Started
+## Build Server
 
 ### Prerequisites
 
-*   Java 17+
-*   Maven
+- Java 24+
+- Maven
 
 ### Build from src
 
 ```bash
-mvn clean install -DskipTests -U
+mvn clean install -DskipTests -B
 ```
 
 ```bash
@@ -150,6 +148,7 @@ mvn spring-boot:run
 ```bash
 docker-compose -f docker-compose.dev.yaml up --build
 ```
+
 ```bash
 docker-compose -f docker-compose.prod.yaml up --build
 ```
@@ -157,7 +156,7 @@ docker-compose -f docker-compose.prod.yaml up --build
 #### Build image manually
 
 ```bash
-docker build -t simpl-webscraper:latest .
+docker build -t webMCP_scraper:latest .
 ```
 
 `Run development container`
@@ -171,7 +170,7 @@ docker run -d \
 -v $(pwd)/logs:/app/logs \
 --init --ipc=host \
 simpl-webscraper:latest
-````
+```
 
 `Run production container`
 
@@ -184,7 +183,7 @@ docker run -d \
 -v $(pwd)/logs:/app/logs \
 --init --ipc=host \
 simpl-webscraper:latest
-````
+```
 
 The application (default) will be available at `http://localhost:3000`.
 
@@ -192,13 +191,13 @@ The application (default) will be available at `http://localhost:3000`.
 
 ### `POST /api/v1/search`
 
-This endpoint allows you to initiate a web data scrape, with ***source, snippet and contents***.
+This endpoint allows you to initiate a web data scrape, with **_source, snippet and contents_**.
 
 **Request Body:**
 
 ```json
 {
-  "query": "hamster foods",
+  "query": "Best foods for hamsters",
   "results": 3
 }
 ```
@@ -216,27 +215,31 @@ curl -X POST -H "Content-Type: application/json" -d '{
 
 ```json
 {
-  "responseId" : 253600510,
-  "userQuery" : "hamster foods",
-  "searchResultList" : [ {
-    "success" : true,
-    "source" : "https://www.thesprucepets.com/feeding-pet-hamsters-1238968",
-    "snippet" : "Hamster Food 101: What Can Hamsters Eat? - The Spruce Pets",
-    "content" : "The Ultimate Guide to Hamster Food: What to Feed Your Pet Explore balanced diets and tasty treats for your rodent pet By LIANNE MCLEOD...",
-    "error" : null
-  }, {
-    "success" : true,
-    "source" : "https://www.animallama.com/hamsters/hamster-food-list/",
-    "snippet" : "Safe & Unsafe Hamster Food List: Veggies, Fruits, Herbs ... - Animallama",
-    "content" : "DIET & HEALTH | HAMSTERS Safe & Unsafe Hamster Food List: Veggies, Fruits, Nuts, Seeds, Herbs, Protein & More By Monika Kucic Updated on July 18...",
-    "error" : null
-  }, {
-    "success" : true,
-    "source" : "https://www.petmd.com/exotic/what-can-hamsters-eat",
-    "snippet" : "What Can Hamsters Eat? - PetMD",
-    "content" : "Home What Can Hamsters Eat? By Angelina Childree, LVT . Reviewed by Melissa Witherell, DVM Updated Jul. 23, 2024 Inventori/iStock / Getty Images Plus via Getty Images IN THIS ARTICLE...",
-    "error" : null
-  } ],
-  "message" : "Routing to #4, #4 instances"
+  "responseId": 253600510,
+  "userQuery": "Best foods for hamsters",
+  "searchResultList": [
+    {
+      "success": true,
+      "source": "https://www.thesprucepets.com/feeding-pet-hamsters-1238968",
+      "snippet": "Hamster Food 101: What Can Hamsters Eat? - The Spruce Pets",
+      "content": "The Ultimate Guide to Hamster Food: What to Feed Your Pet Explore balanced diets and tasty treats for your rodent pet By LIANNE MCLEOD...",
+      "error": null
+    },
+    {
+      "success": true,
+      "source": "https://www.animallama.com/hamsters/hamster-food-list/",
+      "snippet": "Safe & Unsafe Hamster Food List: Veggies, Fruits, Herbs ... - Animallama",
+      "content": "DIET & HEALTH | HAMSTERS Safe & Unsafe Hamster Food List: Veggies, Fruits, Nuts, Seeds, Herbs, Protein & More By Monika Kucic Updated on July 18...",
+      "error": null
+    },
+    {
+      "success": true,
+      "source": "https://www.petmd.com/exotic/what-can-hamsters-eat",
+      "snippet": "What Can Hamsters Eat? - PetMD",
+      "content": "Home What Can Hamsters Eat? By Angelina Childree, LVT . Reviewed by Melissa Witherell, DVM Updated Jul. 23, 2024 Inventori/iStock / Getty Images Plus via Getty Images IN THIS ARTICLE...",
+      "error": null
+    }
+  ],
+  "message": "Routing to #4, #4 instances"
 }
 ```
