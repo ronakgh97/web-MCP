@@ -1,8 +1,10 @@
 package com.mcp.webScraper.Workers;
 
-import com.mcp.webScraper.Entries.SearchResult;
+import com.mcp.webScraper.entity.SearchResult;
+import com.mcp.webScraper.utils.ProxyService_withPearl;
 import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.Geolocation;
+
 import com.microsoft.playwright.options.WaitForSelectorState;
 import com.microsoft.playwright.options.WaitUntilState;
 import org.slf4j.Logger;
@@ -50,7 +52,9 @@ public class PlaywrightBrowserSearchTools {
     private volatile Browser browser;
     private final SecureRandom random = new SecureRandom();
     private final AtomicLong searchCount = new AtomicLong(0);
-    private AtomicBoolean isUse = new AtomicBoolean(false);
+    private final AtomicBoolean isUse = new AtomicBoolean(false);
+
+    private ProxyService_withPearl proxyServiceWithPearl;
 
     /**
      * Constructor for the PlaywrightBrowserSearchTools.
@@ -58,6 +62,15 @@ public class PlaywrightBrowserSearchTools {
      */
     public PlaywrightBrowserSearchTools() {
         //logger.info("Initializing Playwright search tool...");
+    }
+
+    /**
+     * Sets the proxy service for this instance. Can be called after creation.
+     * @param proxyService The central proxy service.
+     */
+    public void setProxyService(ProxyService_withPearl proxyService) {
+        this.proxyServiceWithPearl = proxyService;
+        logger.debug("Proxy service has been set for this instance.");
         initializeBrowser();
     }
 
@@ -240,19 +253,37 @@ public class PlaywrightBrowserSearchTools {
     private boolean tryMultipleSelectors(Page page, String[] selectors) {
         for (String selector : selectors) {
             try {
+                // Try shorter timeout first
                 page.waitForSelector(selector.trim(), new Page.WaitForSelectorOptions()
-                        .setTimeout(PlaywrightConfig.SELECTOR_WAIT_TIMEOUT_MS)
+                        .setTimeout(3000)  // Shorter initial timeout
                         .setState(WaitForSelectorState.ATTACHED));
 
-                // Verify that the element is actually visible.
                 Locator elements = page.locator(selector.trim());
                 if (elements.first().isVisible()) {
                     return true;
                 }
             } catch (Exception e) {
                 logger.debug("Selector '{}' failed: {}", selector.trim(), e.getMessage());
+                continue; // Try next selector quickly
             }
         }
+
+        // If all fast attempts failed, try one more time with longer timeout
+        for (String selector : selectors) {
+            try {
+                page.waitForSelector(selector.trim(), new Page.WaitForSelectorOptions()
+                        .setTimeout(SELECTOR_WAIT_TIMEOUT_MS)
+                        .setState(WaitForSelectorState.ATTACHED));
+
+                Locator elements = page.locator(selector.trim());
+                if (elements.first().isVisible()) {
+                    return true;
+                }
+            } catch (Exception e) {
+                // Final attempt failed
+            }
+        }
+
         return false;
     }
 
@@ -310,13 +341,26 @@ public class PlaywrightBrowserSearchTools {
     private void initializeBrowser() {
         try {
             playwright = Playwright.create();
-            browser = playwright.chromium().launch(new BrowserType.LaunchOptions()
+            BrowserType.LaunchOptions options = new BrowserType.LaunchOptions()
                     .setHeadless(BROWSER_HEADLESS)
                     .setTimeout(DEFAULT_TIMEOUT_MS)
-                    .setArgs(BROWSER_ARGS));
+                    .setArgs(BROWSER_ARGS);
+
+            // Configure Proxy with Fallback
+            if (proxyServiceWithPearl != null) {
+                proxyServiceWithPearl.createProxyConfig().ifPresentOrElse(
+                        proxy -> {
+                            options.setProxy(proxy);
+                            logger.debug("Browser initialized with Proxy: {}", proxy.server);
+                        },
+                        () -> logger.warn("No proxy available. Initializing browser with DIRECT connection.")
+                );
+            }
+
+            browser = playwright.chromium().launch(options);
             //logger.info("Browser initialized successfully");
         } catch (Exception e) {
-            logger.error("Browser initialization failed", e.getMessage());
+            logger.error("Browser initialization failed -> {}", e.getMessage());
         }
     }
 
@@ -385,6 +429,8 @@ public class PlaywrightBrowserSearchTools {
         logger.debug("User_Agent: {}", user);
         return user;
     }
+
+
 
     /**
      * This method returns null objects with error message.

@@ -1,9 +1,11 @@
 package com.mcp.webScraper.Workers;
 
-import com.mcp.webScraper.Entries.ScrapeResult;
+import com.mcp.webScraper.entity.ScrapeResult;
+import com.mcp.webScraper.utils.ProxyService_withPearl;
 import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.Geolocation;
 import com.microsoft.playwright.options.LoadState;
+
 import com.microsoft.playwright.options.WaitUntilState;
 import org.apache.pdfbox.io.RandomAccessReadBuffer;
 import org.apache.pdfbox.pdfparser.PDFParser;
@@ -46,12 +48,24 @@ public class PlaywrightWebScraperTools {
     private final AtomicLong scrapeCount = new AtomicLong(0);
     private AtomicBoolean isUse = new AtomicBoolean(false);
 
+    private ProxyService_withPearl proxyServiceWithPearl;
+
     /**
      * Constructor for the PlaywrightWebScraperTools.
      * Initializes the Playwright browser.
      */
     public PlaywrightWebScraperTools() {
         //logger.info("Initializing Playwright scraper tool...");
+        //initializeBrowser();
+    }
+
+    /**
+     * Sets the proxy service for this instance. Can be called after creation.
+     * @param proxyService The central proxy service.
+     */
+    public void setProxyService(ProxyService_withPearl proxyService) {
+        this.proxyServiceWithPearl = proxyService;
+        logger.debug("Proxy service has been set for this instance.");
         initializeBrowser();
     }
 
@@ -169,7 +183,7 @@ public class PlaywrightWebScraperTools {
                     return sendError(url, "Failed after " + MAX_RETRIES + " attempts");
                 }
 
-                long backoff = RETRY_DELAY_BASE_MS * attempt;
+                long backoff = (long) WAIT_TIMEOUT_MS * attempt;
                 logger.warn("Scrape #{} attempt {} failed: {} – retrying in {} ms",
                         scrapeId, attempt, e.getMessage(), backoff);
 
@@ -282,13 +296,26 @@ public class PlaywrightWebScraperTools {
     private void initializeBrowser() {
         try {
             playwright = Playwright.create();
-            browser = playwright.chromium().launch(new BrowserType.LaunchOptions()
+            BrowserType.LaunchOptions options = new BrowserType.LaunchOptions()
                     .setHeadless(BROWSER_HEADLESS)
                     .setTimeout(DEFAULT_TIMEOUT_MS)
-                    .setArgs(BROWSER_ARGS));
+                    .setArgs(BROWSER_ARGS);
+
+            // Configure Proxy with Fallback
+            if (proxyServiceWithPearl != null) {
+                proxyServiceWithPearl.createProxyConfig().ifPresentOrElse(
+                        proxy -> {
+                            options.setProxy(proxy);
+                            logger.debug("Browser initialized with Proxy: {}", proxy.server);
+                        },
+                        () -> logger.warn("No proxy available. Initializing browser with DIRECT connection.")
+                );
+            }
+
+            browser = playwright.chromium().launch(options);
             //logger.info("Browser initialized successfully");
         } catch (Exception e) {
-            logger.error("Browser initialization failed", e.getMessage());
+            logger.error("Browser initialization failed-> {}", e.getMessage());
         }
     }
 
@@ -323,9 +350,31 @@ public class PlaywrightWebScraperTools {
      */
     private void setupPage(Page page) {
         page.addInitScript(STEALTH_SCRIPT);
-        //page.route("**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,otf}", Route::abort);
+
+        // Block resources
+        page.route("**/*", route -> {
+            String url = route.request().url();
+            String resourceType = route.request().resourceType();
+            try {
+                if (resourceType.equals("image") || resourceType.equals("stylesheet") ||
+                        resourceType.equals("font") || resourceType.equals("media") ||
+                        url.contains("ads") || url.contains("analytics") ||
+                        url.contains("tracking") || url.contains("metrics")) {
+                    route.abort();
+                } else {
+                    route.resume();
+                }
+            } catch (Exception e) {
+                try {
+                    route.resume();
+                } catch (Exception ignored) {
+                }
+            }
+        });
+
         page.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
     }
+
 
     /**
      * This method returns a random user agent from a list of user agents.
@@ -335,6 +384,8 @@ public class PlaywrightWebScraperTools {
         logger.debug("User_Agent: {}", user);
         return user;
     }
+
+
 
     /**
      * This method returns a null objects with error message.
