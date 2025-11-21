@@ -15,6 +15,7 @@ my $max_proxies = 10;
 my $threads = 5;
 my $ping_timeout = 3;
 my $verbose = 0;
+my $input_file = "";
 
 GetOptions(
     "timeout=i" => \$timeout,
@@ -22,6 +23,7 @@ GetOptions(
     "threads=i" => \$threads,
     "ping=i"    => \$ping_timeout,
     "verbose"   => \$verbose,
+    "file=s"    => \$input_file,
     "help"      => sub { print_help(); exit 0; }
 );
 
@@ -34,8 +36,25 @@ my @TEST_URLS = (
 );
 
 # PARALLEL PROCESSING SETUP
-my @proxies_to_test = <STDIN>;
-chomp(@proxies_to_test);
+my @proxies_to_test;
+
+if ($input_file) {
+    if (-e $input_file) {
+        open(my $fh, '<', $input_file) or die "Could not open file '$input_file' $!";
+        while (my $line = <$fh>) {
+            # Extract IP:PORT using regex from any text (env file, raw list, etc)
+            while ($line =~ /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+)/g) {
+                push @proxies_to_test, $1;
+            }
+        }
+        close $fh;
+    } else {
+        print STDERR "Warning: Input file '$input_file' not found.\n";
+    }
+} else {
+    @proxies_to_test = <STDIN>;
+    chomp(@proxies_to_test);
+}
 
 print STDERR "PROXY CHECKER v1.1\n";
 print STDERR "━" x 50 . "\n";
